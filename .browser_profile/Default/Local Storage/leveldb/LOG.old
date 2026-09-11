@@ -1,17 +1,3 @@
-2026/09/12-03:18:08.416 7408 Reusing MANIFEST d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/09/12-03:18:08.422 7408 Recovering log #29
-2026/09/12-03:18:08.428 7408 Level-0 table #31: started
-2026/09/12-03:18:08.438 7408 Level-0 table #31: 291698 bytes OK
-2026/09/12-03:18:08.444 7408 Delete type=0 #29
-2026/09/12-03:18:08.446 3600 Compacting 4@0 + 1@1 files
-2026/09/12-03:18:08.467 3600 Generated table #33@0: 265 keys, 1039323 bytes
-2026/09/12-03:18:08.467 3600 Compacted 4@0 + 1@1 files => 1039323 bytes
-2026/09/12-03:18:08.468 3600 compacted to: files[ 0 1 1 0 0 0 0 ]
-2026/09/12-03:18:08.469 3600 Delete type=2 #21
-2026/09/12-03:18:08.469 3600 Delete type=2 #23
-2026/09/12-03:18:08.469 3600 Delete type=2 #26
-2026/09/12-03:18:08.469 3600 Delete type=2 #29
-2026/09/12-03:18:08.469 3600 Delete type=2 #31
-2026/09/12-03:18:29.994 3600 Level-0 table #35: started
-2026/09/12-03:18:30.001 3600 Level-0 table #35: 43998 bytes OK
-2026/09/12-03:18:30.003 3600 Delete type=0 #32
+2026/09/12-04:03:24.791 a01c Reusing MANIFEST d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/09/12-04:03:24.798 a01c Recovering log #38
+2026/09/12-04:03:24.800 a01c Reusing old log d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/000038.log 
