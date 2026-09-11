@@ -444,6 +444,8 @@ class Recommender:
             tag_str = "、".join(p.tags[:6])
             src_badge = "📦 真实数据" if p.data_source == "真实" else "⚠️ 演示数据"
             lines.append(f"### 第{idx}名｜**{p.name}**  `{src_badge}`")
+            if p.images:
+                lines.append(f"![商品图]({p.images[0]})")
             # 基础信息
             store_info = p.seller or "—"
             lines.append(f"- **基础信息**：{p.platform}  ·  店铺：{store_info}  ·  {p.category or '未分类'}")

@@ -12,6 +12,8 @@ API:
     GET  /api/logistics/<oid>
     POST /api/aftersale       body: {"order_id":"...", "reason":"..."}
     POST /api/cancel          body: {"order_id":"...", "reason":"..."}
+    GET  /api/login            网站登录态列表（配置库）
+    POST /api/login            body: {"action":"check|login|clear","platform":"京东|淘宝/天猫"}
     GET  /                    托管 index.html
 """
 
@@ -31,6 +33,7 @@ if BASE_DIR not in sys.path:
 from shopping_agent import ChatSession  # noqa: E402
 import ai_client  # noqa: E402  安全配置 & LLM 调用（key永远不回传前端）
 from product_searcher import save_scrape_cache  # noqa: E402  Trae 浏览器桥接缓存写入
+import config_store  # noqa: E402  配置库：网站登录态管理
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
@@ -113,6 +116,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "/api/apikey":
             json_response(self, 200, {"ok": True, "config": ai_client.get_config()})
             return
+        if path == "/api/login":
+            json_response(self, 200, {"ok": True, "states": config_store.get_states()})
+            return
         if path == "/api/cart":
             self._api_cart_get()
             return
@@ -145,6 +151,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/apikey":
             self._api_apikey_post(body)
+            return
+        if path == "/api/login":
+            self._api_login_post(body)
             return
         if path == "/api/cart":
             self._api_cart_post(body)
@@ -356,6 +365,25 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                 json_response(self, 400, r)
                 return
         json_response(self, 200, r)
+
+    def _api_login_post(self, body: dict):
+        """配置库 · 网站登录态：check=同步检测(≤25s)；login=后台扫码(前端轮询)；clear=按域清理"""
+        action = str(body.get("action") or "").strip().lower()
+        platform = str(body.get("platform") or "").strip()
+        if not platform:
+            json_response(self, 400, {"ok": False, "message": "platform 不能为空",
+                                      "states": config_store.get_states()})
+            return
+        if action == "check":
+            r = config_store.check_login(platform)
+        elif action == "login":
+            r = config_store.start_manual_login(platform)
+        elif action == "clear":
+            r = config_store.clear_login(platform)
+        else:
+            json_response(self, 400, {"ok": False, "message": "未知 action，仅支持 check/login/clear"})
+            return
+        json_response(self, 200, dict(r, states=config_store.get_states()))
 
     # ---------- 虚拟购物车 ----------
     def _api_cart_get(self):

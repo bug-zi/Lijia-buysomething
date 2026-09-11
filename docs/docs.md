@@ -9,6 +9,7 @@
 | `docs.md` | 本文档：docs/ 体系导读 | AI |
 | `log/` | 开发日志，每天一个 `YYMMDD.md`（详见 `log/log.md`） | AI |
 | `project/` | 项目文档库核心：project.md 项目总介绍、机制正本 README、开发者记录区（优化建议区 / 新功能开发区 / 问题疑惑区）、各模块目录（详见 `project/project.md` 顶部「文件夹说明」） | 开发者与 AI 按权责表分工 |
+| `study/` | 学习笔记：流程讲解、原理剖析、复盘总结等问答整理（详见 `study/study.md`） | AI |
 
 ## 工作流（单向）
 

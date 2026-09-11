@@ -18,6 +18,9 @@ echo         https://www.python.org/downloads/windows/
 pause
 exit /b 1
 :run
+REM -- optional driver check (non-blocking hint only, never auto-installs) --
+%PY% -c "import patchright" >nul 2>nul
+if errorlevel 1 echo [HINT] patchright not installed - run the driver installer bat in this folder to enable real scraping. Demo data only until then.
 echo ============================================================
 echo   Shopping Agent Web UI
 echo   URL:     http://127.0.0.1:8765/

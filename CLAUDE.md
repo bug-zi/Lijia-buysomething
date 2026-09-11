@@ -13,6 +13,7 @@
 | docs/project/<模块>/designs-specs.md  | **AI 生成并维护** | 基于 design.md 严格生成，是开发的直接依据；开发者仅简单审核                                                                                     |
 | docs/project/project.md               | 开发者主导        | 可建议；协助完善需审核通过                                                                                                                      |
 | docs/log/<YYMMDD>.md         | AI                | 每天一个开发日志；**每个小节标题下必须附创建时间行**（`> 创建于 YYYY-MM-DD HH:MM`，用 date 取实际时间）                                         |
+| docs/study/                  | **AI**            | 学习笔记：问答产生的流程讲解/原理剖析/复盘整理，`YYYY-MM-DD-<主题>.md` 命名（详见 `study/study.md`）                                           |
 | docs/project/idea/                    | **开发者**        | AI coding 时不需要关注、不得修改（例外：AI 产出的 spec/plan 按机制存放于此，只动自己产出的文件）                                                |
 | docs/project/README.md                | **AI**            | spec/plan 存放与归档机制正本                                                                                                                    |
 | docs/project/ 内各模块 spec/plan 文档 | **AI**            | brainstorming/写计划产出，命名`YYYY-MM-DD-<主题>-design.md` / `-plan.md`，按模块就地存放；落地或废弃后移入所属目录 archive/（机制见 README.md） |

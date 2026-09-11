@@ -22,6 +22,8 @@ from urllib.parse import urlparse
 
 from product_searcher import Product, Review
 
+import config_store  # noqa: E402  配置库：抓取时顺带回写登录态
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 持久化用户配置目录：保存 cookies / 登录态 / 本地存储，实现会话复用
@@ -273,7 +275,7 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
     }
 
     if not _has_playwright():
-        result["block_reason"] = "Playwright 未安装，请对我说「安装 Playwright」"
+        result["block_reason"] = "浏览器驱动未安装，请对我说「安装浏览器驱动」"
         result["data_source"] = "演示"
         return result
     if not _check_browser_binaries():
@@ -733,22 +735,33 @@ LOGIN_URLS = {
 
 def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180) -> bool:
     """当前浏览器窗口内跳转登录页，原地等待用户扫码（浏览器保持打开，无多窗口抢 profile）。
-    登录成功（URL 跳离登录域）返回 True；超时/用户关窗返回 False。
+    登录成功（context 内任意标签页跳离登录域）返回 True；超时/用户关窗返回 False。
     会话写入持久化 profile（.browser_profile），登录一次后短期内无需重复扫码。"""
     try:
         page.goto(LOGIN_URLS[platform], wait_until="domcontentloaded", timeout=30000)
     except Exception:
         pass
     deadline = time.time() + max_wait_s
+    probe_fails = 0
     while time.time() < deadline:
+        # 关窗检测必须用真实 RPC 往返（page.title）：page.is_closed()/page.url 都是本地状态，
+        # 用户直接关窗（进程退出）时 close 事件可能永远不送达，二者会恒为 False/旧值，曾致假「登录中」卡死。
+        # 导航瞬间 RPC 也可能偶发报错，故连续 3 次（约 6s）失败才判定关窗，避免误杀进行中的登录。
         try:
-            low = (page.url or "").lower()
-            # 登录成功：跳离登录域（京东回 search.jd.com / www.jd.com，淘宝回主站/member）
-            if "login" not in low and "passport" not in low:
-                _random_delay(1.5, 3.0)   # 留时间写入 cookie/localStorage
-                return True
+            page.title()
+            probe_fails = 0
         except Exception:
-            return False   # 窗口/页面已被用户关闭
+            probe_fails += 1
+            if probe_fails >= 3 or page.is_closed():
+                return False   # 窗口/浏览器已关闭：关窗即取消
+        # 登录成功：context 内任意标签页跳离登录域（部分平台登录后在新标签页完成跳转）
+        try:
+            urls = [(p.url or "").lower() for p in page.context.pages]
+        except Exception:
+            return False
+        if any(u.startswith("http") and "login" not in u and "passport" not in u for u in urls):
+            _random_delay(1.5, 3.0)   # 留时间写入 cookie/localStorage
+            return True
         time.sleep(2)
     return False
 
@@ -770,7 +783,7 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
         result["data_source"] = "演示"
         return result
     if not _has_playwright():
-        result["block_reason"] = "Playwright 未安装，请对我说「安装 Playwright」"
+        result["block_reason"] = "浏览器驱动未安装，请对我说「安装浏览器驱动」"
         result["data_source"] = "演示"
         return result
     if not _check_browser_binaries():
@@ -815,6 +828,7 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
                 # 登录一次写入持久化 profile，短期内无需重复扫码
                 ok = _goto_login_and_wait(page, platform)
                 if ok:
+                    config_store.record_state(platform, "已登录", "抓取扫码")
                     continue
                 result["block_reason"] = (
                     f"🛑 {platform} 登录未完成（超时或窗口被关闭）。"
@@ -822,6 +836,7 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
                 result["need_human"] = True
                 return result
             if is_login:
+                config_store.record_state(platform, "未登录", "抓取时")
                 result["block_reason"] = (
                     f"🛑 {platform} 搜索仍需登录（本次扫码未成功或已超时）。"
                     "回复「继续抓取」可重试登录；登录一次后短期内无需重复扫码。")

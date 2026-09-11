@@ -492,10 +492,11 @@ class ChatSession:
             return (f"🎯 当前没有待重试的商品链接。上次需求关键词：`{kw}`\n"
                     "请把你在浏览器搜索到的 **1-5 个商品详情链接** 粘贴给我，我会逐个抓取对比。")
 
-        # 安装 Playwright：在本机装好真实浏览器抓取依赖
-        if t in ("安装playwright", "安装 playwright", "安装Playwright",
+        # 安装浏览器驱动：patchright 优先（playwright 兜底），供真实搜索/抓取使用
+        if t in ("安装浏览器驱动", "安装驱动", "安装patchright", "安装 patchright",
+                 "装浏览器驱动", "安装playwright", "安装 playwright",
                  "装playwright", "装 playwright"):
-            return self._install_playwright()
+            return self._install_browser_driver()
 
         # --- 虚拟购物车指令 ---
         # 加入购物车：把第N款加入购物车 / 加入购物车第N款 / 收藏第N款
@@ -611,44 +612,67 @@ class ChatSession:
         lines.append("如需价格监控，回「把第1款加入购物车」后再「监控第1项」。")
         return "\n".join(lines)
 
-    def _install_playwright(self) -> str:
-        """在本机安装 Playwright + Chromium 浏览器二进制，供真实抓取使用"""
+    def _install_browser_driver(self) -> str:
+        """安装浏览器驱动：patchright 优先（默认源失败切清华镜像），playwright 兜底；
+        本机无 Chrome/Edge 时按需下载 Chromium 内核"""
         import subprocess
-        try:
-            # 1) 安装 playwright 包
-            r1 = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "playwright",
-                 "--quiet"],
-                capture_output=True, text=True, timeout=300)
-            if r1.returncode != 0:
-                return (f"⚠️ Playwright 包安装失败（退出码 {r1.returncode}）。\n"
-                        f"stderr: {r1.stderr[-300:]}\n"
-                        "请手动运行：`pip install playwright`")
-        except subprocess.TimeoutExpired:
-            return "⚠️ Playwright 包安装超时（5 分钟）。请稍后重试或手动运行 `pip install playwright`。"
-        try:
-            # 2) 下载 Chromium 浏览器二进制
-            r2 = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                capture_output=True, text=True, timeout=600)
-            if r2.returncode != 0:
-                return (f"⚠️ Chromium 二进制下载失败（退出码 {r2.returncode}）。\n"
-                        f"stderr: {r2.stderr[-300:]}\n"
-                        "请手动运行：`python -m playwright install chromium`")
-        except subprocess.TimeoutExpired:
-            return "⚠️ Chromium 下载超时（10 分钟）。请稍后重试或手动运行 `python -m playwright install chromium`。"
-        # 3) 验证
+
+        def _pip_install(pkg: str, mirror: bool = False):
+            cmd = [sys.executable, "-m", "pip", "install", pkg, "--quiet"]
+            if mirror:
+                cmd += ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple"]
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        # 1) 驱动包：patchright 默认源 → patchright 清华镜像 → playwright 兜底
+        installed = ""
+        errors: List[str] = []
+        for pkg, mirror in (("patchright", False), ("patchright", True),
+                            ("playwright", False), ("playwright", True)):
+            label = pkg + ("（清华镜像）" if mirror else "")
+            try:
+                r = _pip_install(pkg, mirror)
+            except subprocess.TimeoutExpired:
+                errors.append(f"{label} 超时")
+                continue
+            if r.returncode == 0:
+                installed = pkg
+                break
+            errors.append(f"{label} 失败（退出码 {r.returncode}）")
+        if not installed:
+            return ("⚠️ 驱动包安装失败（已尝试默认源与清华镜像）。\n"
+                    + "\n".join(f"· {e}" for e in errors[-2:])
+                    + "\n请手动运行：`pip install patchright`")
+
+        # 2) 浏览器：本机有 Chrome/Edge 则无需下载内核
         try:
             import web_scraper
-            web_scraper._has_playwright.cache_clear() if hasattr(web_scraper._has_playwright, "cache_clear") else None
-            if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
-                return ("✅ Playwright + Chromium 安装完成！\n"
-                        "现在搜索淘宝/京东/拼多多时会自动启动有头真实浏览器抓取（stealth + 随机延迟 + 会话复用）。\n"
-                        "如遇验证码，我会暂停并交还浏览器给你手动验证，完成后回复「继续抓取」即可。")
+            if web_scraper._find_system_browser():
+                return self._verify_browser_driver(
+                    installed, "检测到本机 Chrome/Edge，无需下载浏览器内核。")
         except Exception:
             pass
-        return ("✅ 安装命令已执行，请重启服务后生效。\n"
-                "重启后搜索会自动启用真实浏览器抓取。")
+        try:
+            r = subprocess.run([sys.executable, "-m", installed, "install", "chromium"],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                return (f"⚠️ 驱动包 {installed} 已装好，但 Chromium 下载失败。\n"
+                        f"请手动运行：`python -m {installed} install chromium`，"
+                        "或本机安装 Chrome/Edge 后无需下载。")
+        except subprocess.TimeoutExpired:
+            return (f"⚠️ Chromium 下载超时（10 分钟）。驱动包 {installed} 已装好，"
+                    f"可稍后手动运行 `python -m {installed} install chromium`。")
+        return self._verify_browser_driver(installed, "已下载 Chromium 内核。")
+
+    def _verify_browser_driver(self, pkg: str, note: str) -> str:
+        try:
+            import web_scraper
+            if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
+                return (f"✅ 浏览器驱动就绪（{pkg}）。{note}\n"
+                        "现在直接输入购物需求即可真实搜索；遇登录墙会弹出浏览器让你扫码"
+                        "（登录一次后短期免登），遇验证码我会暂停交还人工，回复「继续抓取」续跑。")
+        except Exception:
+            pass
+        return f"✅ 安装命令已执行（{pkg}），请重启服务后生效。"
 
     # ---------- 会话状态导出（用于调试/可视化） ----------
     def snapshot(self) -> Dict[str, Any]:

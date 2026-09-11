@@ -1,8 +1,7 @@
 @echo off
 REM ============================================================
 REM  ShoppingAgent - CLI launcher (shopping_agent.py)
-REM  Usage: double-click, or run with "demo" arg for regression:
-REM         启动购物助手.bat demo
+REM  Usage: double-click, or run with "demo" arg for regression.
 REM  NOTE: keep this file pure ASCII (no Chinese) to avoid cmd
 REM        codepage parsing issues. Chinese is allowed in the
 REM        filename only.
@@ -20,6 +19,9 @@ echo         https://www.python.org/downloads/windows/
 pause
 exit /b 1
 :run
+REM -- optional driver check (non-blocking hint only, never auto-installs) --
+%PY% -c "import patchright" >nul 2>nul
+if errorlevel 1 echo [HINT] patchright not installed - run the driver installer bat in this folder to enable real scraping. Demo data only until then.
 echo ============================================================
 echo   Shopping Agent CLI
 echo   Python:  %PY%

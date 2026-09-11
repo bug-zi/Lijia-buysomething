@@ -1,3 +1,5 @@
-2026/09/12-01:59:41.334 27c4 Reusing MANIFEST d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/09/12-01:59:41.338 27c4 Recovering log #20
-2026/09/12-01:59:41.343 27c4 Reusing old log d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/000020.log 
+2026/09/12-03:18:55.271 b104 Reusing MANIFEST d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/09/12-03:18:55.276 b104 Recovering log #34
+2026/09/12-03:18:55.278 b104 Level-0 table #37: started
+2026/09/12-03:18:55.286 b104 Level-0 table #37: 90243 bytes OK
+2026/09/12-03:18:55.293 b104 Delete type=0 #34
