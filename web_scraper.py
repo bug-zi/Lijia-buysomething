@@ -69,6 +69,10 @@ def _has_playwright() -> bool:
 
 
 def _check_browser_binaries() -> Optional[str]:
+    """返回可用的浏览器通道：系统 Chrome/Edge 优先（指纹更真实），否则捆绑 Chromium，无则 None"""
+    sys_channel = _find_system_browser()
+    if sys_channel:
+        return sys_channel
     try:
         home = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
@@ -86,6 +90,25 @@ def _check_browser_binaries() -> Optional[str]:
         return None
     except Exception:
         return None
+
+
+def _find_system_browser() -> Optional[str]:
+    """探测本机已安装的真实 Chrome/Edge（对淘宝/天猫风控的指纹更友好）"""
+    candidates = [
+        ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ("chrome", os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                r"Google\Chrome\Application\chrome.exe")),
+        ("msedge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+        ("msedge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for channel, path in candidates:
+        try:
+            if path and os.path.exists(path):
+                return channel
+        except Exception:
+            continue
+    return None
 
 
 def _detect_block(page, platform: str) -> Tuple[bool, str]:
@@ -137,23 +160,67 @@ def _launch_browser(headless: bool = False):
         "--no-sandbox",
         "--disable-dev-shm-usage",
     ]
-    context = pw.chromium.launch_persistent_context(
+    channel = _find_system_browser()
+    launch_kwargs: Dict[str, Any] = dict(
         user_data_dir=BROWSER_PROFILE_DIR,
         headless=headless,
         args=launch_args,
         viewport={"width": 1440, "height": 900},
         locale="zh-CN",
         timezone_id="Asia/Shanghai",
-        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"),
     )
+    if channel:
+        # 真实 Chrome/Edge：UA 跟随本机浏览器，不硬编码，避免版本不匹配的机器人特征
+        launch_kwargs["channel"] = channel
+    else:
+        launch_kwargs["user_agent"] = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                      "Chrome/124.0.0.0 Safari/537.36")
+    try:
+        context = pw.chromium.launch_persistent_context(**launch_kwargs)
+    except Exception:
+        # channel 启动失败（浏览器被占用/升级中）→ 回退捆绑 Chromium
+        launch_kwargs.pop("channel", None)
+        launch_kwargs.setdefault("user_agent",
+                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                 "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/124.0.0.0 Safari/537.36")
+        context = pw.chromium.launch_persistent_context(**launch_kwargs)
     context.add_init_script(_STEALTH_JS)
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
 
 
 # ---------- 单链接详情页抓取（核心入口） ----------
+def _save_failure_screenshot(page, url: str) -> str:
+    """抓取失败时留存现场截图到 temp/，便于排查（失败不静默）"""
+    try:
+        d = os.path.join(BASE_DIR, "temp")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, "scrape_fail_%s.png" % time.strftime("%Y%m%d_%H%M%S"))
+        page.screenshot(path=path, full_page=False)
+        return path
+    except Exception:
+        return ""
+
+
+def _goto_with_retry(page, url: str, timeout: int = 30000) -> Optional[Exception]:
+    """两段式导航：domcontentloaded 30s → commit +45s 重试一次；两次都失败返回最后一次异常"""
+    last_err: Optional[Exception] = None
+    for attempt, wait_until in enumerate(("domcontentloaded", "commit"), 1):
+        try:
+            page.goto(url, wait_until=wait_until,
+                      timeout=timeout if attempt == 1 else timeout + 15000)
+            return None
+        except Exception as e:
+            last_err = e
+            try:
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+    return last_err
+
+
 def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
     """
     抓取单个商品详情页，提取结构化字段。
@@ -171,7 +238,8 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
         result["data_source"] = "演示"
         return result
     if not _check_browser_binaries():
-        result["block_reason"] = "Chromium 二进制未下载，请运行 python -m playwright install chromium"
+        result["block_reason"] = ("未找到可用浏览器：请安装 Chrome/Edge，"
+                                  "或运行 python -m playwright install chromium")
         result["data_source"] = "演示"
         return result
 
@@ -183,7 +251,17 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
         return result
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        goto_err = _goto_with_retry(page, url)
+        if goto_err is not None:
+            # 加载失败多为风控静默拦截（页面永不加载完成），与验证码同样交还人工
+            shot = _save_failure_screenshot(page, url)
+            result["block_reason"] = (
+                f"🛑 {platform} 页面加载超时（{goto_err.__class__.__name__}），"
+                "疑似被风控拦截。请在弹出的浏览器里手动打开该链接并完成验证/登录，"
+                "完成后回复「继续抓取」。"
+                + (f"（失败截图已保存：{shot}）" if shot else ""))
+            result["need_human"] = True
+            return result
         _random_delay(1.2, 3.0)
         _slow_scroll(page, steps=4)
         _random_delay(0.8, 1.8)
