@@ -60,6 +60,7 @@ class ChatSession:
         self._pending_rank: Optional[int] = None              # 待确认购买的序号
         self._cancelled = False                                # 用户是否已取消当前搜索
         self._pending_urls: List[str] = []                    # 被验证码拦截的URL，用于"继续抓取"重试
+        self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
 
     # ---------- 对外主入口 ----------
     def chat(self, user_input: str) -> str:
@@ -167,16 +168,50 @@ class ChatSession:
             resp = clarify_hint.strip() + "\n\n" + resp
         return resp
 
-    # ---------- 推荐流程（新工作流：解析需求 → 输出关键词 → 提示粘贴链接） ----------
+    # ---------- 推荐流程（需求直达商品：限量真实搜索 → 打分 TOP3；失败回退粘贴链接） ----------
     def _flow_recommend(self, raw_text: str, req: ShoppingRequest) -> str:
         keyword = req.keyword or req.category or "商品"
         # 记录为上一次请求（后续可基于此调整）
         self._last_request = req
+        self._pending_search = False
 
-        # 新工作流：不自动搜索，输出关键词 + 提示用户手动搜索并粘贴链接
+        # 真实搜索优先（每平台限量 ≤10 条，默认 6；登录墙交还人工）
+        try:
+            products, block_reason, need_human = self.searcher.search_real(
+                keyword, platforms=req.platforms or None, max_per_platform=6)
+        except Exception as e:
+            products, block_reason, need_human = [], f"真实搜索异常：{e}", False
+
+        # 登录墙/验证码：暂停，等用户在弹出的浏览器里自行扫码/验证
+        if need_human:
+            self._pending_search = True
+            return (f"🔍 已按需求准备搜索「{keyword}」。\n\n"
+                    f"❌ {block_reason}\n\n"
+                    "完成后回复「**继续抓取**」，我会继续为你搜索并推荐。")
+
+        if products:
+            # 无价卡片无法参与比较，先剔除并如实说明
+            no_price = [p for p in products if not p.final_price]
+            products = [p for p in products if p.final_price]
+            if len(products) >= 3:
+                if no_price:
+                    pass  # 数量少时静默剔除，避免误导性的 ¥0 展示
+                products, scores = self.recommender.recommend_from_products(
+                    products, budget=req.price_max)
+                extra = req.summary() or None
+                resp = self.recommender.format_top3(products, scores, extra_require=extra)
+                return resp + (
+                    "\n---\n> ℹ️ 以上来自浏览器实时搜索的**真实商品**（📦 价格/图片为搜索页所见，"
+                    "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
+
+        # 搜索不足或失败 → 如实告知 + 回退「粘贴链接」老路径
         lines = [
             f"🎯 **需求解析完成**，搜索关键词：`{keyword}`",
             f"   · 筛选条件：{req.summary()}",
+        ]
+        if block_reason:
+            lines.append(f"\n⚠️ 自动搜索未成功：{block_reason}")
+        lines += [
             "",
             "📋 **下一步操作**：",
             f"   1. 在浏览器打开 淘宝/京东/拼多多，搜索 `{keyword}`",
@@ -444,6 +479,12 @@ class ChatSession:
                 return (f"🔁 正在用真实浏览器重新抓取 {len(urls)} 个被拦截的链接……\n"
                         "（请保持浏览器窗口可见，如再次出现验证码，请手动完成并回复「继续抓取」）\n\n"
                         + self._flow_grab_and_compare(urls))
+            # 搜索流程被登录墙/验证码拦截 → 续跑搜索
+            if self._pending_search and self._last_request is not None:
+                self._pending_search = False
+                return ("🔁 登录/验证已完成，正在继续搜索……\n"
+                        "（请保持浏览器窗口可见，如再次遇到验证码请手动完成并回复「继续抓取」）\n\n"
+                        + self._flow_recommend(t, self._last_request))
             if self._last_request is None:
                 return "⚠️ 当前没有挂起的搜索任务。请先提出购物需求（如「买一条连衣裙 预算200」）。"
             req = self._last_request

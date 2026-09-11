@@ -782,6 +782,76 @@ class ProductSearcher:
         reason = "；".join(block_reasons) if block_reasons else ""
         return products, reason
 
+    # ---------- 限量真实搜索：需求直达商品（2026-09-12 新增） ----------
+    def search_real(self, keyword: str, platforms: Optional[List[str]] = None,
+                    max_per_platform: int = 6) -> Tuple[List[Product], str, bool]:
+        """
+        打开平台搜索结果页限量抓取（每平台 ≤10 条，默认 6），返回 (products, block_reason, need_human)。
+        卡片层拿不到的字段（评价等）留空，绝不编造；登录墙 need_human=True 交还人工。
+        """
+        try:
+            import web_scraper
+        except Exception as e:
+            return [], f"web_scraper 模块不可用：{e}", False
+        if not keyword or not keyword.strip():
+            return [], "搜索关键词为空", False
+        if not platforms:
+            platforms = ["京东", "淘宝/天猫"]
+
+        products: List[Product] = []
+        reasons: List[str] = []
+        need_human = False
+        for pf in platforms:
+            r = web_scraper.search_platform(keyword.strip(), pf,
+                                            max_results=max_per_platform)
+            for card in r.get("cards") or []:
+                try:
+                    p = self._product_from_card(card, pf, keyword)
+                    products.append(p)
+                except Exception:
+                    continue
+            if r.get("block_reason"):
+                reasons.append(r["block_reason"])
+            if r.get("need_human"):
+                need_human = True
+                break   # 登录墙/验证码：停止后续平台，交还人工
+        return products, "；".join(r for r in reasons if r), need_human
+
+    @staticmethod
+    def _product_from_card(card: Dict[str, Any], platform: str,
+                           keyword: str = "") -> Product:
+        """搜索卡片 → Product。价格/销量解析失败留 0，图片缺省空列表。"""
+        import re as _re
+        price = 0.0
+        m = _re.search(r'(\d+(?:\.\d{1,2})?)',
+                       (card.get("price_text") or "").replace(',', ''))
+        if m:
+            price = float(m.group(1))
+        sales_text = card.get("sales_text") or ""
+        m2 = _re.search(r'(\d+(?:\.\d+)?)\s*万', sales_text)
+        if m2:
+            sales = int(float(m2.group(1)) * 10000)
+        else:
+            m3 = _re.search(r'(\d[\d,]*)', sales_text.replace(',', ''))
+            sales = int(m3.group(1)) if m3 else 0
+        url = card.get("url") or ""
+        raw = {
+            "pid": url or f"{platform}-{(card.get('name') or '')[:24]}",
+            "name": card.get("name") or "未知商品",
+            "platform": platform,
+            "price": price,
+            "final_price": price,
+            "seller": card.get("seller", ""),
+            "sales": sales,
+            "images": [card["image"]] if card.get("image") else [],
+            "source_url": url,
+            "category": keyword.strip()[:12],
+        }
+        p = _build_product(raw)
+        p.data_source = "真实"
+        return p
+
+
     # ---------- Mock 演示搜索（仅演示场景，须用 ⚠️ 标记） ----------
     def mock_search(self, keyword: str, category: Optional[str] = None,
                     price_max: Optional[float] = None,

@@ -1,2 +1,5 @@
-2026/09/12-00:40:28.687 ac48 Creating DB D:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Session Storage since it was missing.
-2026/09/12-00:40:28.709 ac48 Reusing MANIFEST D:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Session Storage/MANIFEST-000001
+2026/09/12-01:59:41.458 27c4 Creating DB d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Session Storage since it was missing.
+2026/09/12-01:59:41.480 27c4 Reusing MANIFEST d:\Code\举一反三\李佳Agent\buy something\.browser_profile\Default\Session Storage/MANIFEST-000001
+2026/09/12-01:59:50.378 9b7c Level-0 table #5: started
+2026/09/12-01:59:50.390 9b7c Level-0 table #5: 100145 bytes OK
+2026/09/12-01:59:50.395 9b7c Delete type=0 #3
