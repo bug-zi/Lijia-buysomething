@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🛒 全自动个人购物AI助手 — 网页版</title>
+<style>
+/* ============== 全局变量 & reset ============== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #1890ff;
+  --primary-dark: #096dd9;
+  --primary-soft: #e6f4ff;
+  --success: #52c41a;
+  --warning: #faad14;
+  --danger: #ff4d4f;
+  --text-1: #1f2937;
+  --text-2: #4b5563;
+  --text-3: #6b7280;
+  --border: #e5e7eb;
+  --bg: #f3f6fb;
+  --card: #ffffff;
+  --chat-bg: #fafbfc;
+  --user-bubble: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+  --ai-bubble: #ffffff;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow:    0 6px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.05);
+  --shadow-lg: 0 20px 40px rgba(16,24,40,.12), 0 4px 8px rgba(16,24,40,.06);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Arial, sans-serif;
+}
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text-1);
+  background: var(--bg);
+  line-height: 1.6;
+  overflow: hidden;
+}
+button { font-family: inherit; cursor: pointer; border: none; outline: none; }
+input, textarea, select { font-family: inherit; font-size: 14px; }
+::selection { background: var(--primary-soft); color: var(--primary-dark); }
+
+/* ============== 布局：左侧导航 + 右侧内容 ============== */
+.app { display: flex; height: 100vh; width: 100vw; }
+
+/* ------ 侧边栏 ------ */
+.sidebar {
+  width: 260px; flex-shrink: 0;
+  background: linear-gradient(180deg, #0b3d91 0%, #1890ff 100%);
+  color: #fff;
+  display: flex; flex-direction: column;
+  padding: 20px 14px 16px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.18);
+}
+.brand .logo {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: rgba(255,255,255,.2);
+  display: grid; place-items: center;
+  font-size: 22px;
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-sm);
+}
+.brand .title { font-size: 16px; font-weight: 700; line-height: 1.2; }
+.brand .sub { font-size: 12px; opacity: .85; margin-top: 3px; }
+
+.nav { margin-top: 18px; display: flex; flex-direction: column; gap: 4px; }
+.nav-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+  transition: background .18s ease, transform .15s ease;
+  user-select: none;
+}
+.nav-item:hover { background: rgba(255,255,255,.14); }
+.nav-item.active {
+  background: #fff;
+  color: var(--primary-dark);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(2px);
+  font-weight: 600;
+}
+.nav-item .ico {
+  width: 22px; height: 22px; display: inline-grid; place-items: center;
+  font-size: 18px;
+}
+.nav-item .badge {
+  margin-left: auto; background: var(--warning); color: #fff;
+  font-size: 11px; padding: 1px 8px; border-radius: 10px;
+}
+
+.sidebar-footer {
+  margin-top: auto; padding: 14px 8px 0;
+  border-top: 1px solid rgba(255,255,255,.18);
+  font-size: 12px; color: rgba(255,255,255,.85); line-height: 1.6;
+}
+.sidebar-footer .tip {
+  display: flex; align-items: flex-start; gap: 6px;
+}
+.sidebar-footer code {
+  background: rgba(255,255,255,.22); padding: 0 5px; border-radius: 4px;
+  color: #fff; font-size: 11.5px;
+}
+
+/* ------ 内容区 ------ */
+.main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.topbar {
+  height: 56px; flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 22px;
+  box-shadow: var(--shadow-sm);
+}
+.topbar h2 { font-size: 17px; font-weight: 700; }
+.topbar .meta { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--text-3); }
+.tag-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--primary-soft); color: var(--primary-dark);
+  border-radius: 999px; padding: 4px 10px; font-weight: 500;
+}
+.tag-pill.green { background: #e6fcec; color: #237804; }
+.tag-pill.warn  { background: #fff8e6; color: #ad6800; }
+.tag-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+
+/* Tab 容器 */
+.tab-panel {
+  display: none;
+  flex: 1; min-height: 0;
+  padding: 20px 24px;
+  overflow: auto;
+}
+.tab-panel.active { display: block; }
+
+/* ============== 通用：卡片 ============== */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+.card-title {
+  font-size: 15px; font-weight: 700; margin-bottom: 14px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-title .sub {
+  font-size: 12.5px; color: var(--text-3); font-weight: 400;
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: #fff; color: var(--text-1);
+  border: 1px solid var(--border);
+  transition: all .18s ease;
+  font-weight: 500;
+}
+.btn:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.btn.primary {
+  background: var(--user-bubble);
+  color: #fff; border: none;
+  box-shadow: 0 6px 16px rgba(24,144,255,.32);
+}
+.btn.primary:hover { color: #fff; transform: translateY(-1px); filter: brightness(1.05); }
+.btn.danger { color: var(--danger); border-color: #ffccc7; }
+.btn.danger:hover { background: #fff1f0; color: var(--danger); }
+.btn.ghost { border: none; background: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--primary-soft); color: var(--primary-dark); }
+.btn.sm { padding: 5px 10px; font-size: 12.5px; border-radius: 8px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+/* 输入 */
+.input, .textarea, .select {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  transition: all .18s ease;
+  color: var(--text-1);
+}
+.input:focus, .textarea:focus, .select:focus {
+  border-color: var(--primary);
+  outline: 4px solid rgba(24,144,255,.12);
+}
+.textarea { min-height: 80px; resize: vertical; }
+.form-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 16px;
+}
+.form-grid .full { grid-column: 1 / -1; }
+.form-item label {
+  display: block; font-size: 12.5px; color: var(--text-2);
+  margin-bottom: 4px; font-weight: 500;
+}
+.form-item .help { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+/* ============== Tab 1: 聊天 ============== */
+.chat-wrap {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 130px);
+}
+.chat-messages {
+  flex: 1; min-height: 0;
+  padding: 14px 18px;
+  overflow-y: auto;
+  background: var(--chat-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.chat-msg {
+  display: flex; gap: 10px; margin-bottom: 14px;
+  animation: fadeUp .28s ease both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.chat-msg .avatar {
+  width: 36px; height: 36px; border-radius: 12px;
+  display: grid; place-items: center; flex-shrink: 0;
+  font-size: 18px;
+}
+.chat-msg.user { flex-direction: row-reverse; }
+.chat-msg.user .avatar { background: var(--user-bubble); color: #fff; box-shadow: var(--shadow-sm); }
+.chat-msg.ai   .avatar { background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.chat-bubble {
+  max-width: 78%;
+  padding: 11px 14px;
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+}
+.chat-msg.user .chat-bubble {
+  background: var(--user-bubble); color: #fff;
+  border-top-right-radius: 4px;
+}
+.chat-msg.ai .chat-bubble {
+  background: var(--ai-bubble); color: var(--text-1);
+  border-top-left-radius: 4px;
+  border: 1px solid var(--border);
+}
+/* Markdown 轻量渲染（服务端返回的是类md字符串） */
+.chat-bubble h1, .chat-bubble h2, .chat-bubble h3, .chat-bubble h4 { margin: .4em 0 .3em; line-height: 1.35; }
+.chat-bubble h1 { font-size: 17px; }
+.chat-bubble h2 { font-size: 16px; }
+.chat-bubble h3 { font-size: 15px; color: var(--primary-dark); }
+.chat-bubble h4 { font-size: 14px; }
+.chat-bubble p { margin: .35em 0; }
+.chat-bubble ul, .chat-bubble ol { padding-left: 1.3em; margin: .4em 0; }
+.chat-bubble li { margin: .15em 0; }
+.chat-bubble code {
+  background: rgba(24,144,255,.1); color: var(--primary-dark);
+  padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
+}
+.chat-bubble pre {
+  background: #0b3d91; color: #e6f4ff; padding: 10px 12px; border-radius: 8px;
+  overflow-x: auto; margin: .5em 0;
+}
+.chat-bubble a { color: var(--primary-dark); text-decoration: none; border-bottom: 1px dashed; }
+.chat-bubble hr { border: none; border-top: 1px dashed var(--border); margin: .7em 0; }
+.chat-bubble table {
+  border-collapse: collapse; margin: .6em 0; font-size: 13px;
+  display: block; overflow-x: auto; white-space: nowrap;
+}
+.chat-bubble th, .chat-bubble td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+}
+.chat-bubble th { background: var(--primary-soft); color: var(--primary-dark); }
+.chat-bubble strong { color: var(--primary-dark); font-weight: 600; }
+.chat-msg.user .chat-bubble strong { color: #ffe58f; }
+
+/* 输入区 */
+.chat-input-wrap {
+  margin-top: 14px;
+  display: flex; gap: 10px; align-items: flex-end;
+  padding: 10px 10px 10px 14px;
+  background: #fff; border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.chat-input-wrap .textarea {
+  border: none; background: transparent;
+  box-shadow: none; outline: none; padding: 6px 4px;
+  min-height: 28px; max-height: 160px;
+  resize: none;
+  font-size: 14px; line-height: 1.5;
+}
+.chat-input-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(24,144,255,.15), var(--shadow);
+}
+.send-btn {
+  height: 40px; width: 40px; border-radius: 12px; flex-shrink: 0;
+  background: var(--user-bubble); color: #fff;
+  display: grid; place-items: center;
+  box-shadow: 0 6px 16px rgba(24,144,255,.35);
+  transition: all .18s ease;
+  font-size: 18px;
+}
+.send-btn:hover { filter: brightness(1.05); transform: translateY(-1px) rotate(-4deg); }
+.send-btn:disabled { filter: grayscale(1); opacity: .6; transform: none; }
+
+/* 图片上传区 */
+.img-upload-btn {
+  height: 40px; width: 40px; border-radius: 12px; flex-shrink: 0;
+  background: var(--bg); color: var(--text-light);
+  display: grid; place-items: center;
+  border: 1px dashed var(--border);
+  font-size: 20px; cursor: pointer; transition: all .18s;
+}
+.img-upload-btn:hover { border-color: var(--primary); color: var(--primary); }
+.img-preview-wrap {
+  margin-top: 8px; display: none; gap: 8px; flex-wrap: wrap;
+  padding: 8px; background: var(--bg); border-radius: 10px;
+}
+.img-preview-wrap.show { display: flex; }
+.img-thumb {
+  position: relative; width: 64px; height: 64px; border-radius: 8px;
+  overflow: hidden; border: 1px solid var(--border);
+}
+.img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.img-thumb .remove {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: rgba(0,0,0,.6); color: #fff;
+  font-size: 13px; display: grid; place-items: center; cursor: pointer;
+  border: none; line-height: 1;
+}
+.img-thumb .remove:hover { background: rgba(255,77,79,.9); }
+.quick-chips {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin: 10px 2px 0;
+}
+.chip {
+  font-size: 12.5px; padding: 5px 12px;
+  border-radius: 999px;
+  background: #fff; border: 1px solid var(--border);
+  color: var(--text-2);
+  transition: all .18s ease;
+  cursor: pointer;
+}
+.chip:hover { color: var(--primary-dark); border-color: var(--primary); background: var(--primary-soft); }
+
+.typing {
+  display: inline-flex; gap: 4px; padding: 4px 0;
+}
+.typing span {
+  width: 6px; height: 6px; background: var(--primary);
+  border-radius: 50%;
+  animation: typing 1s infinite ease-in-out;
+}
+.typing span:nth-child(2) { animation-delay: .15s; }
+.typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes typing {
+  0%,60%,100% { transform: translateY(0); opacity: .4; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+
+/* ============== Tab 2: 档案 ============== */
+.profile-table {
+  width: 100%; font-size: 13.5px;
+  border-collapse: collapse;
+}
+.profile-table th, .profile-table td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.profile-table th {
+  width: 40%;
+  color: var(--text-2); background: var(--bg); font-weight: 500;
+}
+.profile-table td input {
+  width: 100%; border: none; background: transparent; outline: none;
+  padding: 4px 6px; border-radius: 6px; font-size: 13.5px;
+}
+.profile-table td input:focus { background: var(--primary-soft); }
+.profile-actions {
+  display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.cmd-bar {
+  display: flex; gap: 8px; margin-top: 10px; align-items: stretch;
+}
+.cmd-bar .input { flex: 1; }
+
+/* ============== Tab 3: 订单 & 物流 ============== */
+.order-list { display: flex; flex-direction: column; gap: 12px; }
+.order-card {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: all .2s ease;
+}
+.order-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
+.order-card .status-box {
+  border-radius: 10px; padding: 14px;
+  display: flex; flex-direction: column; gap: 6px; justify-content: center;
+  align-items: center; text-align: center;
+  background: var(--primary-soft); color: var(--primary-dark);
+  font-weight: 600;
+}
+.order-card .status-box.paid   { background: #e6fcec; color: #237804; }
+.order-card .status-box.shipped,
+.order-card .status-box.t { background: #fff8e6; color: #ad6800; }
+.order-card .status-box.delivered { background: #e6f4ff; color: #0050b3; }
+.order-card .status-box.refund,
+.order-card .status-box.sale { background: #fff1f0; color: #cf1322; }
+.order-card .status-box.cancel { background: #f5f5f5; color: #595959; }
+.status-box .big { font-size: 15px; }
+.status-box .small { font-size: 11px; font-weight: 400; opacity: .85; }
+.order-card .info .pname { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
+.order-card .info .meta {
+  font-size: 12.5px; color: var(--text-2); line-height: 1.8;
+}
+.order-card .info .meta span { margin-right: 14px; }
+.order-card .info .meta .price { color: var(--danger); font-weight: 700; font-size: 15px; }
+.order-card .actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; min-width: 170px; }
+.track-item {
+  display: grid; grid-template-columns: 80px 86px 1fr;
+  gap: 10px; align-items: start;
+  padding: 8px 0; border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+}
+.track-item:last-child { border-bottom: none; }
+.track-item .t { color: var(--text-3); font-size: 12px; }
+.track-item .status-pill {
+  background: var(--primary-soft); color: var(--primary-dark);
+  text-align: center; padding: 2px 6px; border-radius: 10px;
+  font-size: 11.5px; font-weight: 500;
+}
+.track-item .status-pill.ok { background: #e6fcec; color: #237804; }
+.track-item .status-pill.warn { background: #fff8e6; color: #ad6800; }
+.track-item .status-pill.err { background: #fff1f0; color: #cf1322; }
+
+/* 弹窗：售后/取消/物流详情 */
+.modal-mask {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: center; justify-content: center;
+  z-index: 99; backdrop-filter: blur(2px);
+}
+.modal-mask.open { display: flex; }
+.modal {
+  width: min(720px, 92vw); max-height: 86vh; overflow: auto;
+  background: #fff; border-radius: 18px; box-shadow: var(--shadow-lg);
+  padding: 22px 24px;
+}
+.modal h3 { margin-bottom: 14px; }
+.modal-close { float: right; background: none; border: none; font-size: 22px; color: var(--text-3); cursor: pointer; }
+.modal-close:hover { color: var(--danger); }
+
+/* ============== Tab 4: 推荐快捷 ============== */
+.rec-grid {
+  display: grid; gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+.rec-card {
+  background: #fff; border-radius: var(--radius);
+  border: 1px solid var(--border);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all .22s ease;
+  display: flex; flex-direction: column;
+  position: relative; overflow: hidden;
+}
+.rec-card:hover { box-shadow: var(--shadow); transform: translateY(-3px); }
+.rec-card .rank {
+  position: absolute; top: 12px; right: 12px;
+  font-weight: 800; font-size: 28px;
+  color: rgba(24,144,255,.1); letter-spacing: -1px;
+  user-select: none; pointer-events: none;
+}
+.rec-card h4 { font-size: 15px; margin: 0 40px 8px 0; line-height: 1.4; }
+.rec-card .platform {
+  display: inline-block; background: var(--primary-soft); color: var(--primary-dark);
+  font-size: 11.5px; padding: 2px 8px; border-radius: 6px; font-weight: 500;
+  margin-bottom: 8px;
+}
+.rec-card .price-line { font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.rec-card .price-line .final {
+  color: var(--danger); font-size: 20px; font-weight: 800;
+  margin-right: 8px;
+}
+.rec-card .price-line .orig { text-decoration: line-through; opacity: .7; }
+.rec-card dl { margin: 6px 0; }
+.rec-card dt { font-size: 12.5px; color: var(--text-3); margin-top: 6px; }
+.rec-card dd { font-size: 13px; color: var(--text-1); margin-left: 0; }
+.rec-card dd.good::before { content: "✅ "; }
+.rec-card dd.bad::before  { content: "⚠️ "; }
+.rec-card dd.good { color: #237804; }
+.rec-card dd.bad  { color: #ad6800; }
+.rec-card .score-grid {
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  gap: 6px; margin: 10px 0 0;
+  border-top: 1px dashed var(--border); padding-top: 10px;
+}
+.rec-card .score-grid div { text-align: center; font-size: 11.5px; color: var(--text-3); }
+.rec-card .score-grid div b { display: block; color: var(--primary-dark); font-size: 14px; margin-top: 1px; }
+
+/* 空状态 */
+.empty {
+  padding: 40px 20px; text-align: center;
+  color: var(--text-3); font-size: 13.5px;
+}
+.empty .big { font-size: 46px; margin-bottom: 8px; display: block; }
+
+/* 消息 toast */
+.toast-stack {
+  position: fixed; top: 20px; right: 20px; z-index: 999;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  background: #fff; border-radius: 10px;
+  padding: 10px 14px; box-shadow: var(--shadow-lg);
+  border-left: 4px solid var(--primary);
+  font-size: 13px; min-width: 200px;
+  animation: fadeIn .25s ease both;
+}
+.toast.ok    { border-left-color: var(--success); }
+.toast.warn  { border-left-color: var(--warning); }
+.toast.err   { border-left-color: var(--danger); }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 响应式：窄屏 */
+@media (max-width: 900px) {
+  .sidebar { width: 70px; padding: 16px 8px; }
+  .brand .title, .brand .sub, .nav-item .label, .sidebar-footer { display: none; }
+  .brand { justify-content: center; padding-bottom: 14px; }
+  .nav-item { justify-content: center; }
+  .form-grid { grid-template-columns: 1fr; }
+  .order-card { grid-template-columns: 1fr; }
+  .chat-bubble { max-width: 92%; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============= 侧边导航 ============= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">🛒</div>
+      <div>
+        <div class="title">购物AI助手</div>
+        <div class="sub">Personal Shopping Agent</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-item active" data-tab="tab-chat"  onclick="switchTab('tab-chat')">
+        <span class="ico">💬</span><span class="label">对话购物</span>
+      </div>
+      <div class="nav-item" data-tab="tab-profile" onclick="switchTab('tab-profile')">
+        <span class="ico">👤</span><span class="label">个人档案</span>
+      </div>
+      <div class="nav-item" data-tab="tab-orders"  onclick="switchTab('tab-orders')">
+        <span class="ico">📦</span><span class="label">订单 & 物流</span>
+        <span class="badge" id="order-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-tab="tab-cart"   onclick="switchTab('tab-cart')">
+        <span class="ico">🛒</span><span class="label">虚拟购物车</span>
+        <span class="badge" id="cart-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-tab="tab-rec"     onclick="switchTab('tab-rec')">
+        <span class="ico">🏆</span><span class="label">TOP3 推荐</span>
+      </div>
+      <div class="nav-item" data-tab="tab-api"     onclick="switchTab('tab-api')">
+        <span class="ico">🔑</span><span class="label">API Key 设置</span>
+        <span class="badge" id="llm-badge" style="display:none"></span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="tip">
+        <span>💡</span>
+        <span>快速开始：<br>
+          先 <code>录入档案</code> 建档<br>
+          再 <code>买夏天连衣裙 200以内</code><br>
+          下单前必须二次确认
+        </span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============= 主内容 ============= -->
+  <main class="main">
+    <div class="topbar">
+      <h2 id="topbar-title">💬 对话购物 · 自然语言驱动全流程</h2>
+      <div class="meta">
+        <span class="tag-pill green"><span class="dot"></span>后端已连接</span>
+        <span class="tag-pill warn"  id="profile-badge"><span class="dot"></span>档案待完善</span>
+        <span class="tag-pill"><span class="dot"></span>v1.0 · 零第三方依赖</span>
+      </div>
+    </div>
+
+    <!-- Tab1: 聊天 -->
+    <section class="tab-panel active" id="tab-chat">
+      <div class="chat-wrap">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg ai">
+            <div class="avatar">🛒</div>
+            <div class="chat-bubble" id="welcome-bubble"></div>
+          </div>
+        </div>
+
+        <div class="quick-chips" id="quick-chips">
+          <button class="chip" onclick="sendMsg('录入档案')">🎯 录入档案</button>
+          <button class="chip" onclick="sendMsg('查看档案')">📋 查看档案</button>
+          <button class="chip" onclick="sendMsg('买一条夏天的连衣裙，预算200以内')">👗 连衣裙 ≤200</button>
+          <button class="chip" onclick="sendMsg('推荐一双通勤运动鞋，200-400之间')">👟 运动鞋 200-400</button>
+          <button class="chip" onclick="sendMsg('买一个降噪耳机，1500以下，京东')">🎧 京东降噪耳机 ≤1500</button>
+          <button class="chip" onclick="sendMsg('我的订单')">📦 我的订单</button>
+          <button class="chip" onclick="sendMsg('物流')">🚚 最新物流</button>
+          <button class="chip" onclick="sendMsg('展示我的购物车')">🛒 我的购物车</button>
+          <button class="chip" onclick="sendMsg('用浏览器抓取 连衣裙')">🌐 浏览器抓取真实数据</button>
+        </div>
+
+        <div class="chat-input-wrap">
+          <label class="img-upload-btn" title="上传商品图片（找同款/对比）">
+            🖼️<input type="file" id="img-input" accept="image/*" multiple
+                      style="display:none" onchange="onImageSelect(event)">
+          </label>
+          <textarea id="chat-input" class="textarea" rows="1"
+            placeholder="输入购物需求，或上传图片找同款/对比（Shift+Enter 换行，Enter 发送）"></textarea>
+          <button id="send-btn" class="send-btn" title="发送 (Enter)">➤</button>
+        </div>
+        <div class="img-preview-wrap" id="img-preview-wrap"></div>
+      </div>
+    </section>
+
+    <!-- Tab2: 档案 -->
+    <section class="tab-panel" id="tab-profile">
+      <div class="card">
+        <div class="card-title">
+          <span>👤 个人购物偏好档案（所有商品推荐的永久参考）</span>
+          <span class="sub">修改字段值后点「💾 保存修改」即可生效</span>
+        </div>
+        <div class="profile-actions">
+          <button class="btn"        onclick="collectProfile()">📝 分批引导录入</button>
+          <button class="btn"        onclick="viewProfile()">🔍 查看档案（表格）</button>
+          <button class="btn primary"onclick="saveProfile()">💾 保存修改</button>
+          <button class="btn danger" onclick="clearProfile()">🗑️ 清空全部档案</button>
+        </div>
+        <form id="profile-form" onsubmit="event.preventDefault(); saveProfile();"></form>
+      </div>
+
+      <div class="card" id="collect-card" style="display:none;">
+        <div class="card-title">
+          <span>📝 档案录入向导（温和分批，无压迫感）</span>
+          <span class="sub">多个值用「,」分隔，不想填可以点「跳过本项」</span>
+        </div>
+        <div id="collect-prompt" style="margin-bottom:10px;"></div>
+        <div class="cmd-bar">
+          <input type="text" class="input" id="collect-input" placeholder="在此输入回答..." onkeydown="if(event.key==='Enter'){event.preventDefault(); submitCollect();}">
+          <button class="btn ghost" onclick="submitCollect('跳过')">跳过本项</button>
+          <button class="btn primary" onclick="submitCollect()">下一步 ➤</button>
+          <button class="btn" onclick="document.getElementById('collect-card').style.display='none'">结束录入</button>
+        </div>
+        <div id="collect-result" style="margin-top:10px; white-space:pre-wrap; background:var(--bg); padding:10px 14px; border-radius:10px; display:none;"></div>
+      </div>
+    </section>
+
+    <!-- Tab3: 订单 & 物流 -->
+    <section class="tab-panel" id="tab-orders">
+      <div class="card">
+        <div class="card-title">
+          <span>📦 订单列表</span>
+          <div>
+            <button class="btn sm" onclick="loadOrders()">🔄 刷新</button>
+          </div>
+        </div>
+        <div id="order-list" class="order-list">
+          <div class="empty"><span class="big">📦</span>暂无订单，到「对话购物」里完成一次下单吧！</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab3.5: 虚拟购物车 -->
+    <section class="tab-panel" id="tab-cart">
+      <div class="card">
+        <div class="card-title">
+          <span>🛒 虚拟购物车 / 收藏</span>
+          <div>
+            <button class="btn sm" onclick="loadCart()">🔄 刷新</button>
+            <button class="btn sm" onclick="cartCheckPrices()">🔔 检查价格变动</button>
+            <button class="btn sm danger" onclick="cartClear()">🗑️ 清空</button>
+          </div>
+        </div>
+        <div class="sub" style="margin-bottom:10px;">
+          这是 Agent 内部收藏购物车，<b>不等同于平台官方购物车</b>。开启价格监控后，刷新会重新抓取当前价并提醒降价。
+          推荐后可在对话里回「把第1款加入购物车」收藏。
+        </div>
+        <div id="cart-alerts" style="display:none; margin-bottom:10px;"></div>
+        <div id="cart-list" class="order-list">
+          <div class="empty"><span class="big">🛒</span>购物车为空 — 先做一次推荐，再回「把第1款加入购物车」。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab4: TOP3 推荐结果 -->
+    <section class="tab-panel" id="tab-rec">
+      <div class="card">
+        <div class="card-title">
+          <span>🏆 最近一次 TOP3 推荐</span>
+          <span class="sub">推荐会结合你的个人档案打分，每次对话后自动更新</span>
+        </div>
+        <div id="rec-empty" class="empty">
+          <span class="big">🏆</span>
+          还没有推荐结果 — 到「对话购物」里提需求，比如 <b>「买连衣裙 预算200以内」</b>，推荐结果会同步显示在这里。
+        </div>
+        <div id="rec-grid" class="rec-grid" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- Tab 5: API Key 设置 -->
+    <section class="tab-panel" id="tab-api">
+      <div class="card">
+        <div class="card-title">
+          <span>🔑 AI 能力 · API Key 设置</span>
+          <span class="sub">
+            用于增强：<b>①需求解析理解 ②买家真实评价摘要 ③个性化点评报告</b>。
+            未配置或调用失败时，自动回退到规则引擎，推荐能力依然可用。
+          </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns: 1.2fr 1fr;gap:18px;align-items:start;">
+          <!-- 左：配置表单 -->
+          <div>
+            <div class="form-grid">
+              <div class="form-item full">
+                <label>API Key *</label>
+                <input class="input" id="api-key-input" type="password" placeholder="粘贴服务商给你的 Key（保存后永不回传明文）" autocomplete="off">
+                <div class="help">
+                  目前已识别的主流服务商：智谱 bigmodel.cn / DeepSeek / 通义千问 dashscope / 硅基流动 / 豆包 火山方舟 / Kimi 月之暗面（均为 OpenAI 兼容接口）。
+                  点击下方「🔍 自动探测并保存」即可自动匹配服务商。
+                </div>
+              </div>
+              <div class="form-item">
+                <label>Base URL（可选，手动指定服务商）</label>
+                <input class="input" id="api-base-input" placeholder="例：https://open.bigmodel.cn/api/paas/v4">
+              </div>
+              <div class="form-item">
+                <label>模型名（可选）</label>
+                <input class="input" id="api-model-input" placeholder="例：glm-4-flash / deepseek-chat / qwen-turbo">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+              <button class="btn primary" onclick="apiKeyAction('set')">💾 自动探测 + 保存</button>
+              <button class="btn" onclick="apiKeyAction('test')">🧪 测试连通性</button>
+              <button class="btn danger" onclick="apiKeyAction('clear')">🗑️ 删除本地 Key</button>
+              <button class="btn ghost"  onclick="apiFillPreset('zhipu')">🧭 智谱预设</button>
+              <button class="btn ghost"  onclick="apiFillPreset('deepseek')">🧭 DeepSeek预设</button>
+              <button class="btn ghost"  onclick="apiFillPreset('qwen')">🧭 通义千问预设</button>
+              <button class="btn ghost"  onclick="apiFillPreset('siliconflow')">🧭 硅基流动预设</button>
+              <button class="btn ghost"  onclick="apiFillPreset('doubao')">🧭 豆包/火山方舟预设</button>
+              <button class="btn ghost"  onclick="apiFillPreset('kimi')">🧭 Kimi 月之暗面预设</button>
+            </div>
+          </div>
+          <!-- 右：当前状态 -->
+          <div class="card" style="margin:0;background:var(--bg);border:1px dashed var(--border);">
+            <div style="font-weight:700;margin-bottom:10px;">📊 当前 AI 配置状态</div>
+            <table class="profile-table" id="api-status-table">
+              <tbody>
+                <tr><th>是否启用</th><td id="st-enabled">检测中…</td></tr>
+                <tr><th>服务商</th><td id="st-provider">-</td></tr>
+                <tr><th>Base URL</th><td id="st-base">-</td></tr>
+                <tr><th>默认模型</th><td id="st-model">-</td></tr>
+                <tr><th>Key（脱敏）</th><td id="st-masked">-</td></tr>
+                <tr><th>成功 / 失败</th><td id="st-counts">-</td></tr>
+                <tr><th>最近一次错误</th><td id="st-error" style="color:var(--text-3);">-</td></tr>
+              </tbody>
+            </table>
+            <div id="api-message" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--primary-soft);color:var(--primary-dark);display:none;"></div>
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px dashed var(--border);margin:18px 0;">
+        <div class="card-title"><span>🔒 安全说明</span></div>
+        <ul style="color:var(--text-2);font-size:13px;line-height:1.9;padding-left:18px;">
+          <li>Key 只保存在你本机 <code>d:\buy something\api_key.json</code>，绝不硬编码进代码，也不传到非服务商的第三方。</li>
+          <li>Web 端回传的只会是「脱敏 Key（前后4位打码）」+ 状态，**绝不明文回写**。</li>
+          <li>项目根目录已附带 <code>.gitignore</code>，<code>api_key.json</code>、<code>.env</code>、订单档案等敏感文件都被标记为忽略，不会误提交到版本仓库。</li>
+          <li>调用失败（网络错误/额度不足/Key过期）会自动回退到规则引擎，**推荐 / 订单 / 物流等功能完全不受影响**。</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 物流详情 / 售后 模态弹窗 -->
+<div class="modal-mask" id="modal-mask" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-body"></div>
+</div>
+
+<!-- toast -->
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+"use strict";
+/* =============== 基础工具 =============== */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+function toast(msg, type="") {
+  const el = document.createElement("div");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  $("#toast-stack").appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+async function api(url, method="GET", body=null) {
+  const opts = { method, headers: {"Content-Type":"application/json"} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const data = await r.json();
+  return data;
+}
+
+/* =============== Tab 切换 =============== */
+function switchTab(id) {
+  $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === id));
+  $$(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.tab === id));
+  const title = {
+    "tab-chat":    "💬 对话购物 · 自然语言驱动全流程",
+    "tab-profile": "👤 个人档案 · 建立偏好让推荐更懂你",
+    "tab-orders":  "📦 订单 & 物流 · 实时跟踪售后进度",
+    "tab-rec":     "🏆 TOP3 推荐 · 多维度打分横评",
+    "tab-api":     "🔑 AI API Key 设置 · 自动探测服务商 + 安全保存",
+  }[id] || "";
+  $("#topbar-title").textContent = title;
+
+  if (id === "tab-profile") loadProfile();
+  if (id === "tab-orders")  loadOrders();
+  if (id === "tab-api")     loadApiKeyStatus();
+}
+
+/* =============== Tab 1: 聊天 =============== */
+const WELCOME_TEXT =
+  "🛒 你好，我是你的**全自动个人购物AI助手**。\n" +
+  "我可以帮你完成：建立偏好档案 → 跨平台选品 → 评价分析 → **TOP3推荐** → 下单模拟 → 物流跟踪 完整闭环。\n\n" +
+  "✨ **试试下面的快捷按钮**，或直接输入你的购物需求，例如：\n" +
+  "- 「录入档案」建立偏好\n" +
+  "- 「买一条夏天的连衣裙，预算200以内，不要黑色」\n" +
+  "- 推荐后回「买第2款」「换更修身的」「预算升到300」调整\n" +
+  "- 「我的订单」「物流」「售后 ODxxxx 尺码不合适」查单查售后";
+
+$("#welcome-bubble").innerHTML = renderMarkdown(WELCOME_TEXT);
+
+/* 极简 markdown 渲染：支持 **加粗**、`code`、列表、###标题、--- */
+function renderMarkdown(text) {
+  let t = String(text || "").replace(/[<>&]/g, m => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[m]));
+  // code block（不需要太复杂）
+  t = t.replace(/^### (.+)$/gm, "<h4>$1</h4>");
+  t = t.replace(/^## (.+)$/gm,  "<h3>$1</h3>");
+  t = t.replace(/^# (.+)$/gm,   "<h2>$1</h2>");
+  t = t.replace(/\n---+\n/g,    "<hr>");
+  t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/`([^`]+)`/g,    "<code>$1</code>");
+  // 无序列表
+  t = t.replace(/(?:^|\n)((?:\s*[-*]\s+.+\n?)+)/g, (m, block) => {
+    const items = block.trim().split(/\n/).map(l => {
+      const s = l.replace(/^\s*[-*]\s+/, "");
+      return "<li>" + s + "</li>";
+    }).join("");
+    return "\n<ul>" + items + "</ul>";
+  });
+  // 有序列表
+  t = t.replace(/(?:^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, (m, block) => {
+    const items = block.trim().split(/\n/).map(l => {
+      const s = l.replace(/^\s*\d+\.\s+/, "");
+      return "<li>" + s + "</li>";
+    }).join("");
+    return "\n<ol>" + items + "</ol>";
+  });
+  // 表格
+  t = t.replace(/(?:^|\n)((?:\|.+?\|\n)+)/g, (m, block) => {
+    const rows = block.trim().split(/\n/).filter(r => /^\|.+\|$/.test(r));
+    if (rows.length < 2) return m;
+    let header = null, body = [];
+    rows.forEach((r, i) => {
+      const cells = r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      if (i === 0) header = cells;
+      else if (/^[-:|\s]+$/.test(r)) { /* 分隔行 忽略 */ }
+      else body.push(cells);
+    });
+    if (!header) return m;
+    const html =
+      "<table>" +
+      "<thead><tr>" + header.map(c => "<th>" + c + "</th>").join("") + "</tr></thead>" +
+      "<tbody>" + body.map(cells =>
+        "<tr>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>"
+      ).join("") + "</tbody>" +
+      "</table>";
+    return "\n" + html + "\n";
+  });
+  t = t.replace(/\n{2,}/g, "</p><p>");
+  t = "<p>" + t + "</p>";
+  return t;
+}
+
+function appendMsg(role, htmlText) {
+  const wrap = $("#chat-messages");
+  const el = document.createElement("div");
+  el.className = "chat-msg " + role;
+  el.innerHTML =
+    `<div class="avatar">${role === "user" ? "🧑" : "🛒"}</div>` +
+    `<div class="chat-bubble">${htmlText}</div>`;
+  wrap.appendChild(el);
+  wrap.scrollTop = wrap.scrollHeight;
+  return el;
+}
+function appendTyping() {
+  const wrap = $("#chat-messages");
+  const el = document.createElement("div");
+  el.className = "chat-msg ai";
+  el.id = "typing-indicator";
+  el.innerHTML =
+    `<div class="avatar">🛒</div>` +
+    `<div class="chat-bubble" style="padding:10px 12px;"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  wrap.appendChild(el);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function removeTyping() {
+  const t = $("#typing-indicator");
+  if (t) t.remove();
+}
+
+let chatBusy = false;
+let pendingImages = [];   // 待发送的图片 data URI 列表
+
+/* =============== 图片上传与预览 =============== */
+function onImageSelect(e) {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (f.size > 4 * 1024 * 1024) { toast("单张图片不能超过 4MB", "err"); continue; }
+    if (pendingImages.length >= 5) { toast("最多上传 5 张图片", "warn"); break; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      pendingImages.push(ev.target.result);
+      renderImagePreview();
+    };
+    reader.readAsDataURL(f);
+  }
+  e.target.value = "";  // 清空 input，允许重复选同一文件
+}
+
+function renderImagePreview() {
+  const wrap = $("#img-preview-wrap");
+  wrap.innerHTML = "";
+  if (!pendingImages.length) { wrap.classList.remove("show"); return; }
+  wrap.classList.add("show");
+  pendingImages.forEach((uri, i) => {
+    const div = document.createElement("div");
+    div.className = "img-thumb";
+    div.innerHTML = `<img src="${uri}"><button class="remove" onclick="removeImage(${i})" title="移除">✕</button>`;
+    wrap.appendChild(div);
+  });
+}
+
+function removeImage(idx) {
+  pendingImages.splice(idx, 1);
+  renderImagePreview();
+}
+
+async function sendMsg(text) {
+  const msg = (text || $("#chat-input").value || "").trim();
+  const imgs = pendingImages.slice();
+  // 无文字且无图片，不发送
+  if (!msg && !imgs.length) return;
+  if (chatBusy) return;
+  chatBusy = true;
+  $("#send-btn").disabled = true;
+
+  // 用户气泡：显示文字 + 缩略图
+  let userHtml = renderMarkdown(msg || (imgs.length === 1 ? "🖼️ [图片找同款]" : `🖼️ [${imgs.length}张图片对比]`));
+  if (imgs.length) {
+    userHtml += '<div style="display:flex;gap:6px;margin-top:6px;">';
+    for (const uri of imgs) {
+      userHtml += `<img src="${uri}" style="width:48px;height:48px;border-radius:6px;object-fit:cover;border:1px solid #eee;">`;
+    }
+    userHtml += '</div>';
+  }
+  appendMsg("user", userHtml);
+  $("#chat-input").value = "";
+  pendingImages = [];
+  renderImagePreview();
+  autoResizeInput();
+  appendTyping();
+
+  try {
+    let res;
+    if (imgs.length) {
+      // 带图片 → /api/image 端点
+      res = await api("/api/image", "POST", { images: imgs, text: msg });
+    } else {
+      // 纯文字 → /api/chat 端点
+      res = await api("/api/chat", "POST", { message: msg });
+    }
+    removeTyping();
+    if (res.ok) {
+      appendMsg("ai", renderMarkdown(res.reply || res.message || ""));
+      updateBadges(res.snapshot);
+      if (res.reply) tryExtractAndRenderRecommendations(res.reply);
+      if (res.pending_order) toast("⚠️ 已进入下单确认流程，回复「确认」执行下单", "warn");
+    } else {
+      appendMsg("ai", renderMarkdown("❌ " + (res.error || "请求失败")));
+    }
+  } catch (e) {
+    removeTyping();
+    appendMsg("ai", renderMarkdown("❌ 网络错误：" + e.message + "\n请确保后端服务已启动（`启动购物助手-网页版.bat`）"));
+    toast("网络错误，请检查后端是否启动", "err");
+  } finally {
+    chatBusy = false;
+    $("#send-btn").disabled = false;
+    $("#chat-input").focus();
+  }
+}
+
+function autoResizeInput() {
+  const t = $("#chat-input");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight, 160) + "px";
+}
+$("#chat-input").addEventListener("input", autoResizeInput);
+$("#chat-input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMsg();
+  }
+});
+$("#send-btn").addEventListener("click", () => sendMsg());
+setTimeout(() => $("#chat-input").focus(), 400);
+
+/* =============== 徽标状态 =============== */
+function updateBadges(snap) {
+  if (!snap) return;
+  const n = (snap.orders || []).length;
+  const badge = $("#order-badge");
+  if (n > 0) { badge.style.display = ""; badge.textContent = n; } else { badge.style.display = "none"; }
+
+  // 购物车徽标
+  const cn = snap.cart_count || 0;
+  const cbadge = $("#cart-badge");
+  if (cbadge) {
+    if (cn > 0) { cbadge.style.display = ""; cbadge.textContent = cn; } else { cbadge.style.display = "none"; }
+  }
+
+  const prof = snap.profile || {};
+  const filled = Object.values(prof).filter(v => v && String(v).trim()).length;
+  const badge2 = $("#profile-badge");
+  if (filled <= 0) { badge2.innerHTML = '<span class="dot"></span>档案为空'; badge2.className = "tag-pill warn"; }
+  else if (filled < 6) { badge2.innerHTML = `<span class="dot"></span>档案已填${filled}项`; badge2.className = "tag-pill warn"; }
+  else { badge2.innerHTML = `<span class="dot"></span>档案已完善 (${filled}项)`; badge2.className = "tag-pill green"; }
+
+  // LLM徽标
+  const llm = snap.llm || {};
+  const b = $("#llm-badge");
+  if (llm && llm.enabled) {
+    const p = (llm.success || 0) + (llm.fails || 0);
+    const green = llm.fails === 0 || (p === 0);
+    b.style.display = "";
+    b.textContent = llm.provider ? llm.provider.replace(/智谱|豆包|DeepSeek|通义千问|硅基流动|Kimi.*/, (m)=>m==="Kimi 月之暗面"?"Kimi":m.slice(0,2)) : "AI";
+    b.style.background = green ? "#52c41a" : "#faad14";
+  } else {
+    b.style.display = "none";
+  }
+}
+
+/* =============== 虚拟购物车 =============== */
+async function loadCart() {
+  try {
+    const r = await api("/api/cart", "GET");
+    if (!r.ok) return;
+    renderCart(r.cart || [], r.alerts || []);
+  } catch (e) { console.error("loadCart", e); }
+}
+function renderCart(items, alerts) {
+  const list = $("#cart-list");
+  const ab = $("#cart-alerts");
+  if (alerts && alerts.length) {
+    ab.style.display = ""; ab.innerHTML = alerts.map(a=>`<div class="chat-bubble" style="background:#fffbe6;border:1px solid #ffe58f;padding:8px 12px;margin:4px 0;">${escapeHtml(a)}</div>`).join("");
+  } else { ab.style.display = "none"; ab.innerHTML=""; }
+  if (!items.length) {
+    list.innerHTML = `<div class="empty"><span class="big">🛒</span>购物车为空 — 先做一次推荐，再回「把第1款加入购物车」。</div>`;
+    return;
+  }
+  list.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:var(--bg);">
+      <th style="text-align:left;padding:8px;">#</th><th style="text-align:left;padding:8px;">商品</th>
+      <th style="text-align:left;padding:8px;">平台</th><th style="text-align:left;padding:8px;">现价</th>
+      <th style="text-align:left;padding:8px;">备注</th><th style="text-align:left;padding:8px;">监控</th>
+      <th style="text-align:left;padding:8px;">操作</th></tr></thead>
+    <tbody>${items.map((it,i)=>`<tr style="border-top:1px solid var(--border);">
+      <td style="padding:8px;">${i+1}</td>
+      <td style="padding:8px;">${escapeHtml(it.name)}${it.url?`<br><a href="${escapeHtml(it.url)}" target="_blank" style="color:var(--primary);font-size:12px;">链接</a>`:""}</td>
+      <td style="padding:8px;">${escapeHtml(it.platform)}</td>
+      <td style="padding:8px;">¥${(+it.current_price).toFixed(1)}<br><span style="color:var(--muted);font-size:11px;">${escapeHtml(it.added_at||"")}</span></td>
+      <td style="padding:8px;">${escapeHtml(it.note||"—")}</td>
+      <td style="padding:8px;">${it.monitor?"🔔 开":"—"}</td>
+      <td style="padding:8px;">
+        <button class="btn sm" onclick="cartToggleMonitor(${i+1})">${it.monitor?"关监控":"开监控"}</button>
+        <button class="btn sm" onclick="cartNote(${i+1})">📝备注</button>
+        <button class="btn sm danger" onclick="cartRemove(${i+1})">移除</button>
+      </td></tr>`).join("")}</tbody></table>`;
+}
+async function cartAction(action, extra={}) {
+  const r = await api("/api/cart","POST",{action, ...extra});
+  if (r.ok) renderCart(r.cart||[], []);
+  if (r.response) toast(r.response);
+}
+function cartRemove(i){ cartAction("remove",{index:i}); }
+function cartClear(){ if(confirm("确认清空虚拟购物车？")) cartAction("clear"); }
+function cartToggleMonitor(i){ cartAction("monitor",{index:i}); }
+function cartNote(i){
+  const v = prompt("输入备注："); if(v!=null) cartAction("note",{index:i,note:v});
+}
+async function cartCheckPrices(){
+  const r = await api("/api/cart","GET");
+  if (!r.ok) return;
+  renderCart(r.cart||[], r.alerts||[]);
+  if((r.alerts||[]).length) toast("🔔 检测到降价提醒，见上方");
+  else toast("✅ 暂无降价提醒（真实抓取若被拦截则跳过该项）");
+}
+function toast(msg){
+  let t = $("#toast"); if(!t){ t=document.createElement("div"); t.id="toast";
+    t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:8px;z-index:9999;font-size:14px;";
+    document.body.appendChild(t);}
+  t.textContent=msg; t.style.display=""; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none",3000);
+}
+/* 切到购物车tab时自动加载 */
+const _origSwitchTab = switchTab;
+switchTab = function(id){ _origSwitchTab(id); if(id==="tab-cart") loadCart(); };
+
+/* =============== Tab 5: API Key 设置 =============== */
+const PRESETS = {
+  zhipu:      {base: "https://open.bigmodel.cn/api/paas/v4",            model: "glm-4-flash"},
+  deepseek:   {base: "https://api.deepseek.com/v1",                      model: "deepseek-chat"},
+  qwen:       {base: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-turbo"},
+  siliconflow:{base: "https://api.siliconflow.cn/v1",                    model: "Qwen/Qwen2.5-7B-Instruct"},
+  doubao:     {base: "https://ark.cn-beijing.volces.com/api/v3",          model: "doubao-1-5-pro-32k-250115"},
+  kimi:       {base: "https://api.moonshot.cn/v1",                        model: "moonshot-v1-8k"},
+};
+function apiFillPreset(name){
+  const p = PRESETS[name]; if(!p) return;
+  $("#api-base-input").value  = p.base;
+  $("#api-model-input").value = p.model;
+  toast(`已填入 ${name} 预设：${p.base} / ${p.model}`, "ok");
+}
+
+async function loadApiKeyStatus(){
+  const r = await api("/api/apikey","GET");
+  const c = (r && r.config) || {};
+  renderApiStatus(c);
+}
+function renderApiStatus(c){
+  $("#st-enabled").innerHTML = c.enabled
+    ? '<span class="tag-pill green"><span class="dot"></span>已启用</span>'
+    : '<span class="tag-pill warn" ><span class="dot"></span>未启用</span>';
+  $("#st-provider").textContent = c.provider || "-";
+  $("#st-base").textContent     = c.base_url || "-";
+  $("#st-model").textContent    = c.model    || "-";
+  $("#st-masked").textContent   = c.masked_key || "-";
+  $("#st-counts").textContent   = `${c.success||0} / ${c.fails||0}`;
+  $("#st-error").textContent    = c.last_error || "-";
+}
+function showApiMsg(text, kind){
+  const el = $("#api-message");
+  el.style.display = "";
+  el.textContent = text;
+  if(kind === "ok")  { el.style.background = "#e6fcec"; el.style.color = "#237804"; }
+  else if(kind==="warn"){ el.style.background = "#fff8e6"; el.style.color = "#ad6800"; }
+  else                 { el.style.background = "#fff1f0"; el.style.color = "#cf1322"; }
+}
+async function apiKeyAction(action){
+  const key   = $("#api-key-input").value.trim();
+  const base  = $("#api-base-input").value.trim();
+  const model = $("#api-model-input").value.trim();
+
+  if(action === "set" && !key){ toast("请先填写 API Key","warn"); return; }
+  if(action === "clear" && !confirm("确认删除本地保存的 API Key 吗？")) return;
+
+  const btnEvt = {set:"💾 自动探测中（需要几秒钟，最多探测8个服务商）…", test:"🧪 连通性测试中…", clear:"🗑️ 删除中…"};
+  toast(btnEvt[action]);
+
+  const r = await api("/api/apikey","POST", {action, api_key: key, base_url: base, model});
+  if(!r){ toast("请求失败","err"); return; }
+
+  showApiMsg(r.message || (r.ok ? "操作成功" : "操作失败"), r.ok ? "ok" : "warn");
+  if(r.ok){
+    // 保存成功后清空输入框（保证前端不留明文）
+    $("#api-key-input").value = "";
+    if(action === "set"){
+      $("#api-base-input").value  = (r.config && r.config.base_url) || "";
+      $("#api-model-input").value = (r.config && r.config.model) || "";
+    }
+  }
+  renderApiStatus(r.config || {});
+  // 同步更新侧栏徽标
+  const snap = await (await fetch("/api/health").catch(()=>({json:async()=>({})})).json()) ;
+  // 借一次聊天刷新snapshot——改用一次 /api/chat 的轻量方式不行，直接用 loadApiKeyStatus 已经返回了配置
+}
+
+
+/* =============== Tab 2: 档案 =============== */
+const PROFILE_FIELDS = [
+  ["height", "身高 (cm)"],
+  ["weight", "体重 (kg)"],
+  ["shoulder", "肩宽 (cm，可选)"],
+  ["waist", "腰围 (cm，可选)"],
+  ["size_habit", "尺码习惯（偏宽松/合身/偏紧，选码偏大/偏小）"],
+  ["color_like", "喜爱色系（逗号分隔）"],
+  ["color_dislike", "避雷颜色（逗号分隔）"],
+  ["style_like", "风格偏好 2-3 个（逗号分隔）"],
+  ["material_like", "材质偏好：喜欢的面料"],
+  ["material_dislike", "材质避雷：不喜欢的面料"],
+  ["fit_like", "版型偏好（如修身/收腰/宽松）"],
+  ["fit_dislike", "版型避雷"],
+  ["skin_type", "肤质（可选）"],
+  ["other_preference", "其他偏好（可选）"],
+  ["receiver", "收货人姓名"],
+  ["phone", "联系电话"],
+  ["address", "收货地址"],
+];
+
+async function loadProfile() {
+  const form = $("#profile-form");
+  const data = await api("/api/profile", "GET");
+  if (!data.ok) { toast("读取档案失败", "err"); return; }
+  const prof = data.profile || {};
+  form.innerHTML =
+    `<table class="profile-table"><tbody>` +
+    PROFILE_FIELDS.map(([k, label]) => `
+      <tr>
+        <th>${label}</th>
+        <td><input type="text" name="${k}" value="${escapeHtml(prof[k] || "")}" placeholder="留空表示暂不填写"></td>
+      </tr>
+    `).join("") +
+    `</tbody></table>`;
+}
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[m]));
+}
+async function saveProfile() {
+  const payload = {};
+  $$("#profile-form input").forEach(i => {
+    if (i.value && i.value.trim()) payload[i.name] = i.value.trim();
+  });
+  const r = await api("/api/profile", "POST", { action: "update", payload });
+  if (r.ok) {
+    toast("✅ 档案已保存", "ok");
+    loadProfile();
+    if (r.response) appendMsg("ai", renderMarkdown(r.response));
+  } else {
+    toast("保存失败：" + (r.error || ""), "err");
+  }
+}
+async function viewProfile() {
+  const r = await api("/api/profile", "POST", { action: "view", payload: "" });
+  if (r.ok) {
+    appendMsg("ai", renderMarkdown(r.view_table || r.response || ""));
+    switchTab("tab-chat");
+    toast("档案已打印在对话区", "ok");
+  }
+}
+async function clearProfile() {
+  if (!confirm("⚠️ 真的要清空全部档案吗？此操作不可撤销。")) return;
+  const r = await api("/api/profile", "POST", { action: "clear", payload: "" });
+  if (r.ok) { toast("✅ 档案已清空", "ok"); loadProfile(); }
+}
+async function collectProfile() {
+  document.getElementById("collect-card").style.display = "block";
+  const r = await api("/api/profile", "POST", { action: "collect", payload: "" });
+  if (r.ok) {
+    $("#collect-prompt").textContent = r.response || "";
+    const resEl = $("#collect-result");
+    resEl.style.display = "none";
+  }
+}
+async function submitCollect(forced) {
+  const input = (forced && forced === "跳过") ? "跳过" : $("#collect-input").value;
+  if (!input && forced !== "跳过") return;
+  const r = await api("/api/profile", "POST", { action: "cmd", payload: input });
+  $("#collect-input").value = "";
+  const resEl = $("#collect-result");
+  if (r.ok) {
+    $("#collect-prompt").textContent = r.response || "✅ 完成";
+    resEl.style.display = "block";
+    resEl.textContent = r.response || "";
+    if (r.response && r.response.includes("已收集完成")) {
+      setTimeout(() => { document.getElementById("collect-card").style.display = "none"; }, 1200);
+    }
+    loadProfile();
+  }
+}
+
+/* =============== Tab 3: 订单 & 物流 =============== */
+async function loadOrders() {
+  const r = await api("/api/orders", "GET");
+  const list = $("#order-list");
+  if (!r.ok || !r.orders || r.orders.length === 0) {
+    list.innerHTML = `<div class="empty"><span class="big">📦</span>暂无订单，去「对话购物」下单吧！</div>`;
+    updateBadges({ orders: [] });
+    return;
+  }
+  list.innerHTML = r.orders.map(o => orderCardHtml(o)).join("");
+  updateBadges({ orders: r.orders });
+}
+
+function statusClass(s) {
+  if (!s) return "";
+  const x = s.toLowerCase();
+  if (x.includes("支付") || x.includes("已下单")) return "paid";
+  if (x.includes("发货") || x.includes("运输") || x.includes("派送") || x.startsWith("t")) return "shipped";
+  if (x.includes("签收")) return "delivered";
+  if (x.includes("售后") || x.includes("退换") || x.includes("退")) return "sale";
+  if (x.includes("取消")) return "cancel";
+  return "";
+}
+function orderCardHtml(o) {
+  return `
+  <div class="order-card">
+    <div class="status-box ${statusClass(o.status)}">
+      <div class="big">${o.status}</div>
+      <div class="small">${o.create_time}</div>
+      <div class="small" style="margin-top:4px;">${o.carrier || "待发货"}</div>
+    </div>
+    <div class="info">
+      <div class="pname">${o.product_name}</div>
+      <div class="meta">
+        <span>🆔 <code>${o.order_id}</code></span>
+        <span>🏬 ${o.platform} · ${o.seller || ""}</span>
+      </div>
+      <div class="meta">
+        <span>👤 ${o.receiver} · ${o.phone || "-"}</span>
+        <span>📍 ${o.address || "-"}</span>
+      </div>
+      <div class="meta">
+        <span class="price">¥${Number(o.final_price).toFixed(2)}</span>
+        <span>📮 运单号：<code>${o.track_no || "待发货"}</code></span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn sm primary" onclick="openLogistics('${o.order_id}')">🚚 查看物流</button>
+      <button class="btn sm" onclick="openAftersale('${o.order_id}')">🔧 申请售后</button>
+      <button class="btn sm danger" onclick="cancelOrder('${o.order_id}')">❌ 取消订单</button>
+    </div>
+  </div>`;
+}
+async function openLogistics(oid) {
+  const r = await api("/api/logistics/" + encodeURIComponent(oid), "GET");
+  if (!r.ok) { toast(r.error || "查询失败", "err"); return; }
+  openModal(`<button class="modal-close" onclick="closeModal()">×</button>
+    <h3>🚚 物流详情 — ${oid}</h3>
+    <div style="background:var(--bg);padding:14px 16px;border-radius:10px;white-space:pre-wrap;">${escapeHtml(r.detail || "")}</div>
+    <p style="margin-top:10px;color:var(--text-3);font-size:12.5px;">💡 轨迹节点为按时间推进的模拟，用于演示完整链路。</p>
+  `);
+}
+function openAftersale(oid) {
+  openModal(`<button class="modal-close" onclick="closeModal()">×</button>
+    <h3>🔧 申请售后 — ${oid}</h3>
+    <div class="form-item" style="margin-bottom:10px;">
+      <label>售后原因</label>
+      <textarea class="textarea" id="aftersale-reason" placeholder="如：尺码偏大想换小一码 / 有质量问题想退货 / ...">尺码不合适，想换小一码</textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="submitAftersale('${oid}')">✅ 提交售后</button>
+    </div>
+  `);
+}
+async function submitAftersale(oid) {
+  const reason = $("#aftersale-reason").value;
+  const r = await api("/api/aftersale", "POST", { order_id: oid, reason });
+  if (!r.ok) { toast(r.error || "提交失败", "err"); return; }
+  closeModal();
+  toast("✅ 售后已提交", "ok");
+  appendMsg("ai", renderMarkdown(r.response || ""));
+  loadOrders();
+  switchTab("tab-orders");
+}
+async function cancelOrder(oid) {
+  if (!confirm("确认取消订单 " + oid + " 吗？")) return;
+  const reason = prompt("取消原因（可选）：", "不想要了") || "";
+  const r = await api("/api/cancel", "POST", { order_id: oid, reason });
+  if (!r.ok) { toast(r.error || "取消失败", "err"); return; }
+  toast("✅ 订单已取消", "ok");
+  appendMsg("ai", renderMarkdown(r.response || ""));
+  loadOrders();
+}
+function openModal(html) {
+  $("#modal-body").innerHTML = html;
+  $("#modal-mask").classList.add("open");
+}
+function closeModal() {
+  $("#modal-mask").classList.remove("open");
+}
+
+/* =============== Tab 4: TOP3 推荐卡片解析渲染 =============== */
+function tryExtractAndRenderRecommendations(text) {
+  if (!text || !text.includes("为你选出TOP3")) return;
+  // 用正则解析每个"### 第X名"段落
+  const blocks = text.split(/###\s*第/).slice(1);
+  const recs = [];
+  blocks.forEach(b => {
+    const rankMatch = b.match(/^([一二三四五六1-6])名[｜|]\*\*(.+?)\*\*\s*`([^`]+)`/);
+    if (!rankMatch) return;
+    const rank = rankMatch[1];
+    const name = rankMatch[2].trim();
+    const dataSource = rankMatch[3] ? rankMatch[3].trim() : "演示数据";
+    const platform = (b.match(/- \*\*基础信息\*\*：(.+?)\s*·/) || [,""])[1].trim();
+    const seller   = (b.match(/店铺：(.+?)\s*·/) || [,""])[1].trim();
+    const finalPrice = (b.match(/- \*\*价格\*\*：现价\s*\*\*¥([0-9.]+)\*\*/) || [,0])[1];
+    const origPrice  = (b.match(/~~原价¥([0-9.]+)~~/) || [,0])[1];
+    const discount   = (b.match(/\((.+?)，?降幅\d+%?\)/) || b.match(/\((.+?)\)\s*·/) || [,""])[1].trim();
+    const goodsLines = [...b.matchAll(/^  ✅\s*(.+)$/gm)].map(m=>m[1].trim());
+    const badLines  = [...b.matchAll(/^  ⚠️\s*(.+)$/gm)].map(m=>m[1].trim());
+    const goods = goodsLines.join("；");
+    const bads  = badLines.join("；");
+    const risk = (b.match(/- \*\*风险提示\*\*：(.+)$/m) || [,""])[1].trim();
+    const matchReason = (b.match(/- \*\*适配你的个人偏好说明\*\*：(.+)$/m) || [,""])[1].trim();
+    const tags = (b.match(/- \*\*属性标签\*\*：(.+)$/m) || [,""])[1].trim();
+    const aftersale = (b.match(/- \*\*售后\/发货\*\*：(.+?)｜/) || [,""])[1].trim();
+    const ship = (b.match(/预计(.+?)天内发货/) || [,""])[1];
+    const pid  = (b.match(/商品ID.+?`([^`]+)`/) || [,""])[1];
+    // 0-10 评分（新卡片）优先；老格式回退到横向对比表
+    const s10 = b.match(/适配度\s*\*?\*?([\d.]+)\*?\*?\s*·\s*性价比\s*\*?\*?([\d.]+)\*?\*?\s*·\s*综合推荐\s*\*?\*?([\d.]+)\*?\*?/);
+    const s100 = b.match(/匹配\s*(\d+).+?性价\s*(\d+).+?口碑\s*(\d+).+?风险\s*(\d+).+?时效\s*(\d+).+?总分\s*\*?\*?(\d+)/);
+    const s = s10
+      ? { adapt10:+s10[1], value10:+s10[2], total10:+s10[3],
+          match:0,value:0,rep:0,riskSafe:0,ship:0,total: Math.round(+s10[3]*10) }
+      : (s100
+        ? { match:+s100[1], value:+s100[2], rep:+s100[3], riskSafe:+s100[4], ship:+s100[5], total:+s100[6], adapt10:0,value10:0,total10:0 }
+        : { match:0,value:0,rep:0,riskSafe:0,ship:0,total:0, adapt10:0,value10:0,total10:0 });
+    recs.push({ rank, name, platform, seller, finalPrice, origPrice, discount, goods, bads, risk, matchReason, tags, aftersale, ship, pid, dataSource, score: s });
+  });
+  if (!recs.length) return;
+  $("#rec-empty").style.display = "none";
+  const grid = $("#rec-grid");
+  grid.style.display = "grid";
+  grid.innerHTML = recs.map(r => `
+    <div class="rec-card">
+      <div class="rank">${r.rank}</div>
+      <span class="platform">${r.platform || ""} · ${r.pid ? "<code style='background:#fff1b8;padding:1px 4px;border-radius:4px;'>" + r.pid + "</code>" : ""}</span>
+      <h4>${r.name}</h4>
+      <div class="price-line">
+        <span class="final">¥${r.finalPrice}</span>
+        <span class="orig">¥${r.origPrice}</span>
+        <span style="color:var(--success);margin-left:6px;">${r.discount}</span>
+      </div>
+      <dl>
+        <dt>核心亮点</dt><dd>${escapeHtml(r.highlights)}</dd>
+        <dt>真实评价提炼</dt>
+        <dd class="good">${escapeHtml(r.goods || "无")}</dd>
+        <dd class="bad">${escapeHtml(r.bads || "暂无明显差评")}</dd>
+        <dt>偏好适配</dt><dd>${escapeHtml(r.matchReason || "")}</dd>
+        <dt>属性标签</dt><dd>${escapeHtml(r.tags || "")}</dd>
+        <dt>售后/发货</dt><dd>${escapeHtml((r.aftersale||"") + "｜" + (r.ship?("预计" + r.ship + "天发货"):""))}</dd>
+      </dl>
+      <div class="score-grid">
+        <div>匹配<b>${r.score.match}</b></div>
+        <div>性价<b>${r.score.value}</b></div>
+        <div>口碑<b>${r.score.rep}</b></div>
+        <div>风险低<b>${r.score.riskSafe}</b></div>
+        <div>时效<b>${r.score.ship}</b></div>
+        <div>总分<b style="color:var(--danger);">${r.score.total}</b></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:12px;">
+        <button class="btn primary sm" onclick="buyRec('${r.rank}')">🛒 买第${r.rank}款</button>
+        <button class="btn sm" onclick="toast('已复制商品ID：${r.pid}','ok')">复制ID</button>
+      </div>
+    </div>
+  `).join("");
+}
+function buyRec(rank) {
+  // 映射 rank 数字：支持中文一二三四五六
+  const map = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6};
+  const n = typeof rank === "number" ? rank : (map[rank] || Number(rank) || 1);
+  switchTab("tab-chat");
+  sendMsg("买第" + (["零","一","二","三","四","五","六"][n] || n) + "款");
+}
+
+/* =============== 启动初始化 =============== */
+window.addEventListener("DOMContentLoaded", async () => {
+  // 1) 探活
+  try {
+    const h = await api("/api/health", "GET");
+    if (h && h.ok) {
+      toast("✅ 后端已就绪：" + h.name + " " + (h.version||""), "ok");
+    } else throw new Error("health no ok");
+  } catch (e) {
+    toast("⚠️ 后端未启动，请双击「启动购物助手-网页版.bat」", "warn");
+    $("#welcome-bubble").innerHTML = renderMarkdown(
+      WELCOME_TEXT +
+      "\n\n⚠️ **当前未连接后端服务**，请先双击 `启动购物助手-网页版.bat` 启动本地服务（默认端口 8765），再刷新本页面。"
+    );
+    return;
+  }
+  // 2) 加载档案+订单（取最新快照）
+  loadProfile();
+  loadOrders();
+  // 3) 初始快照空，徽标正常
+  updateBadges({ profile: {}, orders: [] });
+});
+</script>
+</body>
+</html>

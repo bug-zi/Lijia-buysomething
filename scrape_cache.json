@@ -1,0 +1,54 @@
+{
+  "连衣裙 夏天法式": {
+    "products": [
+      {
+        "name": "法式方领连衣裙 夏季新款 碎花收腰",
+        "platform": "淘宝/天猫",
+        "shop": "气质女装旗舰店",
+        "is_flagship": true,
+        "price": 269.0,
+        "original_price": 359.0,
+        "coupon": "满300减30",
+        "sales": 5800,
+        "rating": 4.8,
+        "review_count": 3200,
+        "review_images": 420,
+        "tags": [
+          "碎花",
+          "雪纺",
+          "收腰",
+          "方领",
+          "法式",
+          "米白色"
+        ],
+        "platform_id": "tb-real-001",
+        "data_source": "真实"
+      },
+      {
+        "name": "茶歇连衣裙女夏 法式复古 短款小个子",
+        "platform": "淘宝/天猫",
+        "shop": "复古衣橱",
+        "is_flagship": false,
+        "price": 259.0,
+        "original_price": 299.0,
+        "coupon": "无",
+        "sales": 3200,
+        "rating": 4.7,
+        "review_count": 2100,
+        "review_images": 280,
+        "tags": [
+          "茶歇",
+          "法式",
+          "复古",
+          "短款",
+          "小个子",
+          "蓝色"
+        ],
+        "platform_id": "tb-real-002",
+        "data_source": "真实"
+      }
+    ],
+    "_ts": 1788949121.5996192
+  },
+  "_expire_at": 1788950921.5996192
+}

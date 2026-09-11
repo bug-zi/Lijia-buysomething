@@ -1,0 +1,9 @@
+api_key.json
+.env
+.env.*
+__pycache__/
+*.pyc
+orders.json
+user_profile.json
+search_history.json
+temp/

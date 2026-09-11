@@ -1,0 +1,821 @@
+# -*- coding: utf-8 -*-
+"""
+主Agent总控 + 自由对话交互模块（模块B）
+完整工作流程：
+1. 需求解析 → 2. 跨平台搜索 → 3. 筛选打分 → 4. 输出TOP3 → 5. 用户确认 → 6. 下单执行 → 7. 物流跟踪
+入口：
+  - 编程调用：ChatSession.chat(user_input)
+  - 命令行交互：python shopping_agent.py
+"""
+
+import os
+import re
+import sys
+import json
+from typing import Optional, Tuple, List, Dict, Any
+
+from profile_module import ProfileManager
+from product_searcher import ProductSearcher, Product
+from recommender import Recommender
+from order_manager import OrderManager, Order
+from request_parser import RequestParser, ShoppingRequest
+from virtual_cart import VirtualCart
+
+# 视觉多模态分析（可选，未配置 API Key 时回退提示）
+try:
+    from ai_client import analyze_image_find_similar, analyze_images_compare, get_config as _get_llm_config
+    _VISION_AVAILABLE = True
+except Exception:
+    analyze_image_find_similar = None
+    analyze_images_compare = None
+    _get_llm_config = None
+    _VISION_AVAILABLE = False
+
+
+class ChatSession:
+    """完整购物对话会话"""
+
+    # 欢迎语
+    GREETING = (
+        "🛒 你好，我是你的**全自动个人购物AI助手**。\n"
+        "我可以帮你完成：建立偏好档案 → 跨平台选品 → 评价分析 → TOP3推荐 → 下单模拟 → 物流跟踪 全流程。\n\n"
+        "你可以随时说：\n"
+        "  · 「录入档案」建立/补充偏好；「查看档案」「修改身高=175」「清空档案」\n"
+        "  · 「买一条夏天的连衣裙，预算200以内」直接提需求\n"
+        "  · 推荐后可回「买第2款」「换更修身的」「预算升到300」\n"
+        "  · 「我的订单」「物流 ODxxxx」「售后 ODxxxx 尺码不合适」"
+    )
+
+    def __init__(self):
+        self.profile = ProfileManager()
+        self.searcher = ProductSearcher(use_mock=False)   # 默认开启真实抓取尝试（失败自动回退 Mock）
+        self.recommender = Recommender(self.profile, self.searcher)
+        self.orders = OrderManager(self.profile)
+        self.parser = RequestParser()
+        self.cart = VirtualCart()
+        # 会话上下文
+        self._collecting_profile = False     # 是否处于分批建档模式
+        self._last_request: Optional[ShoppingRequest] = None  # 上一次搜索请求（用于增量调整）
+        self._pending_order: Optional[Order] = None           # 待确认的订单草稿
+        self._pending_rank: Optional[int] = None              # 待确认购买的序号
+        self._cancelled = False                                # 用户是否已取消当前搜索
+        self._pending_urls: List[str] = []                    # 被验证码拦截的URL，用于"继续抓取"重试
+
+    # ---------- 对外主入口 ----------
+    def chat(self, user_input: str) -> str:
+        text = user_input.strip()
+        if not text:
+            return self.GREETING
+
+        # 1) 档案命令优先处理（支持档案批量录入）
+        if self._collecting_profile:
+            # 建档过程中，用户可以说"完成"或跳出
+            if text in ("完成", "结束建档", "退出建档", "停止录入"):
+                self._collecting_profile = False
+                return "✅ 档案录入已暂停，随时回复「继续建档」可补充未填项。\n" + self.profile.view_profile()
+            resp = self.profile.continue_collect(text)
+            if "已收集完成" in resp:
+                self._collecting_profile = False
+            return resp
+
+        cmd_resp = self.profile.handle_command(text)
+        if cmd_resp is not None:
+            if "档案录入" in cmd_resp and "第 " in cmd_resp:
+                self._collecting_profile = True
+            return cmd_resp
+
+        if text in ("继续建档", "继续录入"):
+            self._collecting_profile = True
+            return self.profile.continue_collect("跳过")
+
+        # 2) 订单 / 物流 / 售后 快捷命令
+        order_resp = self._handle_order_commands(text)
+        if order_resp is not None:
+            return order_resp
+
+        # 2.5) 购物车 / 取消 / 价格对比 / 历史价 等全流程命令
+        flow_resp = self._handle_cart_and_flow_commands(text)
+        if flow_resp is not None:
+            return flow_resp
+
+        # 2.6) 用户粘贴了商品链接 → 逐个抓取详情页 → 打分 → 对比
+        urls = self._extract_urls(text)
+        if urls:
+            return self._flow_grab_and_compare(urls)
+
+        # 2.7) 演示模式：用 Mock 数据展示效果（须用 ⚠️ 标记）
+        if text in ("演示模式", "演示", "用演示数据", "演示一下"):
+            if self._last_request:
+                return self._flow_demo(self._last_request)
+            return ("请先提出购物需求（如「买一条连衣裙 预算200」），"
+                    "然后再说「演示模式」查看效果。")
+
+        # 2.8) 查历史价 [链接]
+        hist_m = re.match(r'(?:查历史价|历史价|查最低价)\s*(https?://.*)', text, re.IGNORECASE)
+        if hist_m:
+            return self._flow_price_history(hist_m.group(1))
+
+        # 3) 待确认订单二次确认：回复「确认」「是」「OK」
+        if self._pending_order is not None:
+            if re.match(r"^(确认|是|好|ok|对|买|下单|支付)$", text, flags=re.IGNORECASE):
+                o = self._pending_order
+                self._pending_order = None
+                self._pending_rank = None
+                return self.orders.confirm_order(o)
+            else:
+                self._pending_order = None
+                self._pending_rank = None
+                return "已取消下单流程，有其他需求可以继续告诉我。"
+
+        # 4) 需求解析（规则 + 可选 AI 增强，失败自动回退）
+        profile_dict = self.profile.get_all()
+        req = self.parser.parse(text, profile=profile_dict, previous=self._last_request)
+
+        # 4.1 指向第几款购买（强意图优先级最高，解析器已做短路处理，这里仅需判断target_rank非空且其他字段为空）
+        if req.target_rank is not None and not (req.keyword or req.require_tags or req.exclude_tags or
+                                                req.price_max is not None or req.price_min is not None or
+                                                req.platforms or req.category):
+            return self._flow_confirm_buy(text, req.target_rank)
+
+        # 4.2 如果是调整意见，叠加上次请求
+        if req.is_adjustment and self._last_request is not None:
+            merged = self._merge_request(self._last_request, req)
+            return self._flow_recommend(text, merged)
+
+        # 4.3 信息不全，主动追问（不盲目搜索）
+        clarify_hint = ""
+        if req.needs_clarify and not req.target_rank:
+            if not req.keyword and not req.category:
+                return (
+                    "🤔 我还没听清你想买什么。请告诉我：想买什么（品类）？预算大概多少？\n"
+                    "例如：「买一条夏天的连衣裙，预算200」"
+                )
+            # 多项关键信息缺失（场景/材质/预算等≥2）→ 主动提问，不直接搜
+            if len(req.needs_clarify) >= 2:
+                qs = "、".join(req.needs_clarify)
+                return (
+                    f"🤔 为了给你更精准的推荐，再确认一下：{qs}。\n"
+                    "你可以一次答完，例如：「夏天通勤，雪纺，预算300以内」。\n"
+                    "或直接回「随便/都行」我就按当前信息搜。"
+                )
+            if len(req.needs_clarify) == 1 and "预算" in req.needs_clarify[0]:
+                clarify_hint = "\n💡 小提示：暂未识别到预算，我先给出推荐，不合适可以随时调整价格范围。"
+
+        # 4.4 推荐
+        resp = self._flow_recommend(text, req)
+        if clarify_hint:
+            resp = clarify_hint.strip() + "\n\n" + resp
+        return resp
+
+    # ---------- 推荐流程（新工作流：解析需求 → 输出关键词 → 提示粘贴链接） ----------
+    def _flow_recommend(self, raw_text: str, req: ShoppingRequest) -> str:
+        keyword = req.keyword or req.category or "商品"
+        # 记录为上一次请求（后续可基于此调整）
+        self._last_request = req
+
+        # 新工作流：不自动搜索，输出关键词 + 提示用户手动搜索并粘贴链接
+        lines = [
+            f"🎯 **需求解析完成**，搜索关键词：`{keyword}`",
+            f"   · 筛选条件：{req.summary()}",
+            "",
+            "📋 **下一步操作**：",
+            f"   1. 在浏览器打开 淘宝/京东/拼多多，搜索 `{keyword}`",
+            "   2. 浏览搜索结果，把你看中的 **1-5 个商品详情链接** 复制粘贴给我",
+            "   3. 我会逐个抓取详情页，提取价格/评价/规格，打分对比后输出 TOP3",
+            "",
+            "💡 你也可以说：",
+            "   · `演示模式` —— 用演示数据先看效果（标注 ⚠️ 演示数据）",
+            "   · 调整预算/条件，如 `预算升到300`",
+        ]
+        return "\n".join(lines)
+
+    # ---------- 演示模式（Mock 数据，须用 ⚠️ 标记） ----------
+    def _flow_demo(self, req: ShoppingRequest) -> str:
+        keyword = req.keyword or req.category or "商品"
+        products = self.searcher.mock_search(
+            keyword=keyword,
+            category=req.category,
+            price_max=req.price_max,
+            require_tags=req.require_tags,
+            exclude_tags=req.exclude_tags,
+        )
+        if not products:
+            return f"⚠️ 演示数据中未找到「{keyword}」，建议换个关键词。"
+        products, scores = self.recommender.recommend_from_products(
+            products, budget=req.price_max)
+        self._last_request = req
+        extra = req.summary() or None
+        resp = self.recommender.format_top3(products, scores, extra_require=extra)
+        # 醒目标注演示数据
+        resp = resp + (
+            "\n---\n> ## ⚠️ 以上为演示数据，并非真实商品\n"
+            "> 演示数据仅用于展示功能效果，价格/评价均为模拟。\n"
+            "> 如需真实商品分析，请把电商商品详情链接粘贴给我。"
+        )
+        return resp
+
+    # ---------- URL 抓取对比流程 ----------
+    def _extract_urls(self, text: str) -> List[str]:
+        """从用户输入中提取商品详情链接"""
+        url_pattern = r'https?://[^\s<>"\']+(?:item\.taobao|tmall|jd\.com|yangkeduo|pinduoduo|detail)[^\s<>"\']*'
+        urls = re.findall(url_pattern, text, re.IGNORECASE)
+        # 也匹配纯链接
+        if not urls:
+            url_pattern2 = r'https?://[^\s<>"\']+'
+            urls = re.findall(url_pattern2, text, re.IGNORECASE)
+        # 去重，保留顺序
+        seen = set()
+        unique = []
+        for u in urls:
+            if u not in seen and any(kw in u.lower() for kw in
+                                     ["taobao", "tmall", "jd.com", "yangkeduo",
+                                      "pinduoduo", "detail", "item"]):
+                seen.add(u)
+                unique.append(u)
+        return unique[:5]
+
+    def _flow_grab_and_compare(self, urls: List[str]) -> str:
+        """逐个抓取用户粘贴的商品链接，打分对比后输出 TOP3"""
+        lines = [f"🔍 收到 {len(urls)} 个商品链接，正在用真实浏览器逐个抓取……"]
+        lines.append("（请保持浏览器窗口可见，如遇验证码请手动完成并回复「继续抓取」）")
+        lines.append("")
+
+        # 逐个抓取
+        products, block_reason = self.searcher.grab_from_urls(urls)
+        # 检测到验证码/滑块拦截 → 保存URL以便"继续抓取"重试
+        if block_reason and "继续抓取" in block_reason:
+            self._pending_urls = list(urls)
+        if not products:
+            if block_reason:
+                return (f"❌ 抓取失败：{block_reason}\n\n"
+                        "请检查链接是否正确，或在浏览器登录后重试。")
+            return "❌ 所有链接均抓取失败，未获取到有效商品数据。"
+
+        # 初筛过滤
+        budget = None
+        if self._last_request:
+            budget = self._last_request.price_max
+        if budget:
+            before = len(products)
+            products = [p for p in products if p.final_price <= budget]
+            if before > len(products):
+                lines.append(f"📊 初筛：过滤了 {before - len(products)} 个超出预算的商品")
+                lines.append("")
+
+        if not products:
+            return f"⚠️ 初筛后无商品符合条件（预算 ¥{budget}），请放宽预算或换链接。"
+
+        # 打分排序
+        products, scores = self.recommender.recommend_from_products(products, budget)
+        extra = None
+        if self._last_request:
+            extra = self._last_request.summary()
+        resp = self.recommender.format_top3(products, scores, extra_require=extra)
+
+        # 如果有部分被拦截，追加提示
+        if block_reason:
+            resp = resp + f"\n---\n⚠️ 部分链接抓取被拦截：{block_reason}"
+        return "\n".join(lines) + resp
+
+    # ---------- 历史价格查询 ----------
+    def _flow_price_history(self, url: str) -> str:
+        """查询单个商品链接的历史最低价"""
+        try:
+            import web_scraper
+            data = web_scraper.get_price_history(url)
+        except Exception as e:
+            return f"❌ 历史价格查询失败：{e}"
+
+        lines = ["📉 **历史价格查询结果**"]
+        lines.append(f"- 商品链接：{url}")
+        lines.append(f"- 当前价格：**¥{data.get('current_price', 0):.1f}**")
+        lines.append(f"- 近3个月最低价：{data.get('history_low_3m') or '暂无数据'}")
+        lines.append(f"- 近6个月最低价：{data.get('history_low_6m') or '暂无数据'}")
+        lines.append(f"- 近12个月最低价：{data.get('history_low_12m') or '暂无数据'}")
+        if data.get("low_date"):
+            lines.append(f"- 最低价日期：{data['low_date']}")
+        lines.append(f"- 当前价位评估：**{data.get('level', '未知')}**")
+        lines.append(f"- 数据来源：{data.get('source', '未知')}")
+        level = data.get("level", "")
+        if level == "好价":
+            lines.append("- 💡 建议：当前接近历史最低价，可考虑入手。")
+        elif level == "高价":
+            lines.append("- 💡 建议：当前价格偏高，建议等待降价或寻找替代品。")
+        else:
+            lines.append("- 💡 建议：价格处于正常区间，按需购买即可。")
+        lines.append("")
+        lines.append("👉 你可以：把这个链接加入购物车 `把当前商品加入购物车`，或继续粘贴更多链接对比。")
+        return "\n".join(lines)
+
+    def _merge_request(self, base: ShoppingRequest, delta: ShoppingRequest) -> ShoppingRequest:
+        """合并「增量调整」请求到上一次请求"""
+        merged = ShoppingRequest(raw=delta.raw)
+        merged.keyword = delta.keyword or base.keyword
+        merged.category = delta.category or base.category
+        merged.price_min = delta.price_min if delta.price_min is not None else base.price_min
+        merged.price_max = delta.price_max if delta.price_max is not None else base.price_max
+        merged.platforms = delta.platforms or list(base.platforms)
+        merged.purpose = delta.purpose or base.purpose
+        merged.is_adjustment = False
+        # 要求/排除取并集，重复去重
+        merged.require_tags = list(dict.fromkeys(list(base.require_tags) + list(delta.require_tags)))
+        merged.exclude_tags = list(dict.fromkeys(list(base.exclude_tags) + list(delta.exclude_tags)))
+        # 排除项中若与要求冲突，优先排除
+        # 常见冲突: 宽松 vs 修身
+        conflicts = [("宽松", "修身"), ("长款", "短款"), ("宽松", "紧身")]
+        for a, b in conflicts:
+            if a in merged.require_tags and b in merged.require_tags:
+                # delta中的后出现的保留
+                if a in delta.require_tags:
+                    merged.require_tags.remove(b)
+                else:
+                    merged.require_tags.remove(a)
+        return merged
+
+    # ---------- 购买确认流程 ----------
+    def _flow_confirm_buy(self, raw_text: str, rank: int) -> str:
+        product = self.recommender.get_last_product(rank)
+        if product is None:
+            return (
+                f"⚠️  没有找到第{rank}款商品，可能是还没做过推荐。\n"
+                "请先告诉我你的购物需求，例如「买连衣裙 预算200」。"
+            )
+        # 构建订单草稿
+        try:
+            draft = self.orders.build_order(product)
+        except ValueError as e:
+            return f"⚠️  {e}"
+
+        # 展示确认信息
+        self._pending_order = draft
+        self._pending_rank = rank
+        lines = []
+        lines.append(f"🛒 **准备下单第{rank}款商品，请核对以下信息：**")
+        lines.append(f"- 商品：**{product.name}**")
+        lines.append(f"- 平台/店铺：{product.platform} · {product.seller}")
+        lines.append(f"- 价格：原价¥{product.price:.1f}，活动到手 **¥{product.final_price:.1f}**（{product.discount or '无活动'}）")
+        lines.append(f"- 收货：{draft.receiver} {draft.phone}")
+        lines.append(f"- 地址：{draft.address}")
+        lines.append("")
+        lines.append(
+            f"⚠️  **支付风险提醒**：本系统**不会**代你支付任何费用；"
+            f"确认后仅做下单流程模拟（返回订单号），真实支付请自行前往{product.platform}官方平台完成。"
+        )
+        lines.append("")
+        lines.append(f"👉 **是否确认购买第{rank}款商品？确认后将进入下单流程。**（回复「确认」执行，其他内容则取消）")
+        return "\n".join(lines)
+
+    # ---------- 订单/物流/售后命令处理 ----------
+    def _handle_order_commands(self, text: str) -> Optional[str]:
+        t = text.strip()
+
+        # 我的订单
+        if t in ("我的订单", "订单", "全部订单"):
+            return self.orders.list_orders()
+
+        # 物流（裸词"物流"/"快递"/"查物流"/"查快递"也匹配）
+        m = re.match(r"^(物流|快递|查物流|查快递)(?:\s*[:：]?\s*(OD?\w*))?$", t, flags=re.IGNORECASE)
+        if m:
+            oid = m.group(2) if m.lastindex and m.lastindex >= 2 else None
+            if not oid:
+                all_ids = sorted(self.orders.orders.keys(), reverse=True)
+                if not all_ids:
+                    return "⚠️  暂无订单，无法查询物流。请先下单后再查询。"
+                oid = all_ids[0]
+            return self.orders.query_logistics(oid)
+
+        # 售后 / 退货 / 退换
+        if re.match(r"^售后\b|^退货\b|^退换\b|^售后申请|^申请售后", t):
+            m = re.match(r"^(售后|退货|退换|售后申请|申请售后)\s*[:：]?\s*(OD?\w*)?\s*(.*)", t)
+            oid = m.group(2) if m else None
+            reason = (m.group(3).strip() if m else "") or "未填写"
+            if not oid:
+                all_ids = sorted(self.orders.orders.keys(), reverse=True)
+                if not all_ids:
+                    return "⚠️  暂无订单，无法发起售后。"
+                oid = all_ids[0]
+            return self.orders.apply_after_sale(oid, reason)
+
+        # 取消订单
+        m = re.match(r"^取消(?:订单)?\s*[:：]?\s*(OD?\w*)", t)
+        if m:
+            oid = m.group(1)
+            if not oid:
+                return "请告诉我要取消的订单号，格式：「取消 ODxxxx」"
+            reason = ""
+            tail = t.replace(m.group(0), "", 1).strip("，,。 ")
+            if tail:
+                reason = tail
+            return self.orders.cancel_order(oid, reason)
+
+        # 比价 / 优惠券 / 售后政策 — 在推荐基础上简单响应
+        if t in ("比价", "对比价格", "看优惠券", "有什么券", "售后政策"):
+            last = self.recommender._last_products
+            if not last:
+                return "ℹ️  请先做一次推荐，然后我会给你列出各款的优惠活动与售后政策。"
+            lines = [f"📊 **{t}对比**（当前TOP{len(last)}）"]
+            for i, p in enumerate(last, 1):
+                lines.append(
+                    f"- 第{i}名｜{p.name[:18]}…｜{p.platform}\n"
+                    f"  原价¥{p.price:.1f} → 到手¥{p.final_price:.1f} | 优惠：{p.discount or '无'}\n"
+                    f"  售后：{'、'.join(p.after_sale) if p.after_sale else '无'} | 库存{p.stock} | {p.ship_days}天内发货"
+                )
+            return "\n".join(lines)
+
+        return None
+
+    # ---------- 购物车 / 取消 / 价格对比 / 历史价 ----------
+    def _handle_cart_and_flow_commands(self, text: str) -> Optional[str]:
+        t = text.strip()
+
+        # 取消当前搜索（开放式中断）
+        if t in ("停止", "取消", "取消这次搜索", "取消搜索", "算了", "不要了", "停下"):
+            self._cancelled = True
+            self._last_request = None
+            return ("🛑 已取消当前搜索任务。\n"
+                    "如需重新开始，告诉我新的购物需求即可（如「买一条连衣裙 预算200」）。")
+
+        # 继续抓取：验证码/滑块手动完成后用户回复此指令，重试真实抓取
+        if t in ("继续抓取", "继续抓", "验证完成", "已完成验证", "继续"):
+            # 优先重试被验证码拦截的URL列表
+            if self._pending_urls:
+                urls = list(self._pending_urls)
+                self._pending_urls = []
+                return (f"🔁 正在用真实浏览器重新抓取 {len(urls)} 个被拦截的链接……\n"
+                        "（请保持浏览器窗口可见，如再次出现验证码，请手动完成并回复「继续抓取」）\n\n"
+                        + self._flow_grab_and_compare(urls))
+            if self._last_request is None:
+                return "⚠️ 当前没有挂起的搜索任务。请先提出购物需求（如「买一条连衣裙 预算200」）。"
+            req = self._last_request
+            kw = req.keyword or req.category or "商品"
+            return (f"🎯 当前没有待重试的商品链接。上次需求关键词：`{kw}`\n"
+                    "请把你在浏览器搜索到的 **1-5 个商品详情链接** 粘贴给我，我会逐个抓取对比。")
+
+        # 安装 Playwright：在本机装好真实浏览器抓取依赖
+        if t in ("安装playwright", "安装 playwright", "安装Playwright",
+                 "装playwright", "装 playwright"):
+            return self._install_playwright()
+
+        # --- 虚拟购物车指令 ---
+        # 加入购物车：把第N款加入购物车 / 加入购物车第N款 / 收藏第N款
+        m = re.search(r"(?:把|将)?\s*第\s*(\d+)\s*款\s*(?:加入购物车|加入收藏|加入收藏购物车|收藏)", t)
+        if not m:
+            m = re.search(r"(?:加入购物车|加入收藏|收藏)\s*第?\s*(\d+)\s*款?", t)
+        if m:
+            rank = int(m.group(1))
+            p = self.recommender.get_last_product(rank)
+            if p is None:
+                return f"⚠️  没有找到第{rank}款商品，请先做一次推荐。"
+            return self.cart.add(p.name, p.platform, p.source_url or "", p.final_price, pid=p.pid)
+
+        # 展示购物车
+        if t in ("展示我的购物车", "我的购物车", "购物车", "查看购物车", "收藏夹", "我的收藏"):
+            return self.cart.list_text()
+
+        # 清空购物车
+        if t in ("清空购物车", "清空收藏", "清空收藏夹"):
+            return self.cart.clear()
+
+        # 监控第N项 / 取消监控第N项 / 全部监控
+        m = re.search(r"(?:取消监控|关闭监控|停止监控)\s*第?\s*(\d+)\s*项?", t)
+        if m:
+            idx = int(m.group(1))
+            if not (1 <= idx <= len(self.cart.items)):
+                return f"⚠️  购物车没有第{idx}项"
+            if self.cart.items[idx - 1].monitor:       # 已开启才关闭
+                self.cart.toggle_monitor(idx)
+            return self.cart.list_text()
+        m = re.search(r"(?:监控|价格监控|开启监控)\s*第?\s*(\d+)\s*项?", t)
+        if m:
+            idx = int(m.group(1))
+            if not (1 <= idx <= len(self.cart.items)):
+                return f"⚠️  购物车没有第{idx}项"
+            if not self.cart.items[idx - 1].monitor:   # 未开启才开启
+                self.cart.toggle_monitor(idx)
+            return self.cart.list_text()
+        if t in ("监控购物车", "监控全部", "全部监控", "监控购物车里商品的价格"):
+            self.cart.monitor_all(True)
+            return "🔔 已开启购物车全部商品的价格监控。\n" + self.cart.list_text()
+
+        # 从购物车移除第N项（明确要求量词"项"或"个"，避免误匹配"删除第N款"）
+        m = re.search(r"(?:从购物车移除|移除|删除)\s*第?\s*(\d+)\s*(?:项|个)", t)
+        if m:
+            idx = int(m.group(1))
+            return self.cart.remove(idx)
+
+        # 给第N项添加备注：xxx
+        m = re.search(r"(?:给|为)?\s*第?\s*(\d+)\s*项\s*(?:添加备注|备注|加备注)[:：]?\s*(.+)", t)
+        if m:
+            idx = int(m.group(1))
+            note = m.group(2).strip()
+            return self.cart.set_note(idx, note)
+
+        # --- 价格对比 / 历史价 ---
+        # 对比第X和第Y（商品）
+        m = re.search(r"对比\s*第?\s*(\d+)\s*(?:个|款)?[和与及还有]\s*第?\s*(\d+)\s*(?:个|款)?\s*(?:商品)?", t)
+        if m:
+            return self._compare_two_products(int(m.group(1)), int(m.group(2)))
+        # 查历史最低价 / 历史价
+        if re.search(r"(历史最低价|历史价|查.*历史|最低价)", t):
+            m = re.search(r"第?\s*(\d+)\s*(?:款|个|项)?", t)
+            if m:
+                return self._price_compare(int(m.group(1)))
+            return ("📊 **历史价格查询**\n"
+                    "历史价格曲线暂不支持（按设置仅做当前价对比）。\n"
+                    "可用指令：「查一下第1款的历史最低价」「对比一下第1个和第2个商品」。")
+
+        # 价格监控提醒主动触发
+        if t in ("检查价格", "查价格变动", "价格监控", "查监控"):
+            alerts = self.cart.check_prices()
+            if not alerts:
+                return "✅ 已检查购物车监控商品，暂无降价提醒。\n（真实抓取若被拦截则跳过该项）"
+            return "🔔 **价格变动提醒**\n" + "\n".join(alerts)
+
+        return None
+
+    def _compare_two_products(self, rank_a: int, rank_b: int) -> str:
+        """对比两个上次推荐商品（当前价对比，无历史曲线）"""
+        pa = self.recommender.get_last_product(rank_a)
+        pb = self.recommender.get_last_product(rank_b)
+        if not pa or not pb:
+            return f"⚠️  没有找到第{rank_a}或第{rank_b}款商品，请先做一次推荐。"
+        lines = [f"📊 **第{rank_a}款 vs 第{rank_b}款 对比**（当前价对比，历史曲线暂不支持）"]
+        lines.append("| 项目 | {} | {} |".format(f"第{rank_a}款", f"第{rank_b}款"))
+        lines.append("|---|---|---|")
+        lines.append(f"| 名称 | {pa.name} | {pb.name} |")
+        lines.append(f"| 平台 | {pa.platform} | {pb.platform} |")
+        lines.append(f"| 现价 | ¥{pa.final_price:.1f} | ¥{pb.final_price:.1f} |")
+        lines.append(f"| 原价 | ¥{pa.price:.1f} | ¥{pb.price:.1f} |")
+        lines.append(f"| 优惠 | {pa.discount or '无'} | {pb.discount or '无'} |")
+        lines.append(f"| 好评率 | {pa.review.positive_rate*100:.0f}% | {pb.review.positive_rate*100:.0f}% |")
+        lines.append(f"| 发货 | {pa.ship_days}天 | {pb.ship_days}天 |")
+        lines.append(f"| 数据来源 | {pa.data_source} | {pb.data_source} |")
+        lines.append("")
+        cheaper = pa if pa.final_price <= pb.final_price else pb
+        lines.append(f"💡 当前价更低：第{rank_a if cheaper is pa else rank_b}款（¥{cheaper.final_price:.1f}）")
+        lines.append("如需加入虚拟购物车监控价格，回「把第N款加入购物车」。")
+        return "\n".join(lines)
+
+    def _price_compare(self, rank: int) -> str:
+        """查某款商品的当前价对比（替代历史最低价查询）"""
+        p = self.recommender.get_last_product(rank)
+        if p is None:
+            return f"⚠️  没有找到第{rank}款商品，请先做一次推荐。"
+        lines = [f"📊 **第{rank}款价格查询**：{p.name}"]
+        lines.append(f"- 平台：{p.platform}  ·  店铺：{p.seller}")
+        lines.append(f"- 当前价：**¥{p.final_price:.1f}**  ~~原价¥{p.price:.1f}~~  ({p.discount or '无活动'})")
+        lines.append(f"- 数据来源：{p.data_source}")
+        lines.append("- 历史最低价：暂不支持历史曲线（按设置仅做当前价对比）。")
+        lines.append("- 是否值得入手：综合好评率、当前折扣与档案匹配度判断；如需跨平台对比，可回「对比一下第1个和第2个商品」。")
+        lines.append("如需价格监控，回「把第1款加入购物车」后再「监控第1项」。")
+        return "\n".join(lines)
+
+    def _install_playwright(self) -> str:
+        """在本机安装 Playwright + Chromium 浏览器二进制，供真实抓取使用"""
+        import subprocess
+        try:
+            # 1) 安装 playwright 包
+            r1 = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "playwright",
+                 "--quiet"],
+                capture_output=True, text=True, timeout=300)
+            if r1.returncode != 0:
+                return (f"⚠️ Playwright 包安装失败（退出码 {r1.returncode}）。\n"
+                        f"stderr: {r1.stderr[-300:]}\n"
+                        "请手动运行：`pip install playwright`")
+        except subprocess.TimeoutExpired:
+            return "⚠️ Playwright 包安装超时（5 分钟）。请稍后重试或手动运行 `pip install playwright`。"
+        try:
+            # 2) 下载 Chromium 浏览器二进制
+            r2 = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True, text=True, timeout=600)
+            if r2.returncode != 0:
+                return (f"⚠️ Chromium 二进制下载失败（退出码 {r2.returncode}）。\n"
+                        f"stderr: {r2.stderr[-300:]}\n"
+                        "请手动运行：`python -m playwright install chromium`")
+        except subprocess.TimeoutExpired:
+            return "⚠️ Chromium 下载超时（10 分钟）。请稍后重试或手动运行 `python -m playwright install chromium`。"
+        # 3) 验证
+        try:
+            import web_scraper
+            web_scraper._has_playwright.cache_clear() if hasattr(web_scraper._has_playwright, "cache_clear") else None
+            if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
+                return ("✅ Playwright + Chromium 安装完成！\n"
+                        "现在搜索淘宝/京东/拼多多时会自动启动有头真实浏览器抓取（stealth + 随机延迟 + 会话复用）。\n"
+                        "如遇验证码，我会暂停并交还浏览器给你手动验证，完成后回复「继续抓取」即可。")
+        except Exception:
+            pass
+        return ("✅ 安装命令已执行，请重启服务后生效。\n"
+                "重启后搜索会自动启用真实浏览器抓取。")
+
+    # ---------- 会话状态导出（用于调试/可视化） ----------
+    def snapshot(self) -> Dict[str, Any]:
+        # 懒加载ai_client避免循环导入
+        ai_cfg = {}
+        try:
+            import ai_client
+            ai_cfg = ai_client.get_config()
+        except Exception:
+            pass
+        return {
+            "profile": self.profile.get_all(),
+            "last_request": self._last_request.summary() if self._last_request else None,
+            "pending_order_id": self._pending_order.order_id if self._pending_order else None,
+            "orders": [oid for oid in self.orders.orders.keys()],
+            "cart_count": len(self.cart.items),
+            "data_source_blocked": bool(getattr(self.searcher, "_last_block_reason", "")),
+            "llm": ai_cfg,
+            "vision_enabled": _VISION_AVAILABLE and (ai_cfg.get("enabled") if ai_cfg else False),
+        }
+
+    # ============== 多模态图片处理 ==============
+    def chat_with_images(self, images: List[str], text: str = "") -> str:
+        """
+        图片处理主入口。
+        images: base64 data URI 列表（如 "data:image/jpeg;base64,..."）
+        text: 用户附带的文字指令
+        根据图片数量和指令自动分发到场景A（单图找同款）或场景B（多图对比）。
+        """
+        if not images:
+            return "⚠️ 未检测到图片内容。"
+
+        # 检查 LLM 视觉能力
+        if not _VISION_AVAILABLE:
+            return ("⚠️ 视觉分析需要配置 LLM API Key。\n"
+                    "请在「AI设置」页配置支持视觉的模型（如 GLM-4V / GPT-4o / Qwen-VL）。\n"
+                    "或直接把商品详情链接发给我，我可以用浏览器抓取真实数据。")
+
+        llm_cfg = _get_llm_config() if _get_llm_config else {}
+        if not llm_cfg.get("enabled"):
+            return ("⚠️ 当前 LLM 未启用，无法做图片视觉分析。\n"
+                    "请在「AI设置」页配置 API Key 后重试，或直接发商品链接给我抓取。")
+
+        # 指令识别
+        t = (text or "").strip()
+        force_find = bool(re.search(r"找同款|找同款|搜同款|根据.*图", t))
+        force_compare = bool(re.search(r"对比.*图|对比这几张|比较.*图", t))
+
+        # 自动分发
+        if len(images) == 1 and not force_compare:
+            return self._flow_image_find_similar(images[0])
+        if len(images) >= 2 or force_compare:
+            return self._flow_image_compare(images)
+
+        # 默认：单图当找同款
+        return self._flow_image_find_similar(images[0])
+
+    # ---------- 场景A：单图找同款 ----------
+    def _flow_image_find_similar(self, image_data_uri: str) -> str:
+        """单张图片：提取特征 → 输出搜索关键词 → 提示用户手动搜索"""
+        lines = ["🖼️ **图片分析中**（场景A：找同款）……"]
+        result = analyze_image_find_similar(image_data_uri) if analyze_image_find_similar else None
+
+        if not result:
+            return ("⚠️ 图片视觉分析失败或未返回有效结果。\n"
+                    "可能原因：模型不支持视觉 / 图片过大 / 网络异常。\n"
+                    "你可以直接描述商品特征（如「白色雪纺连衣裙 收腰 法式」），或发商品链接给我抓取。")
+
+        # 图片模糊提示
+        if result.get("blurry"):
+            return ("⚠️ 图片细节不足，请上传更清晰的商品图。\n"
+                    "或直接把商品链接发给我，我可以用浏览器抓取真实数据。")
+
+        keyword = result.get("keyword", "").strip()
+        category = result.get("category", "")
+        color = result.get("color", "")
+        style = result.get("style", "")
+        material = result.get("material", "")
+        details = result.get("details", "")
+
+        if not keyword:
+            return "⚠️ 未能从图片中提取有效搜索关键词，请换一张更清晰的商品图。"
+
+        lines = [
+            "🖼️ **图片分析完成**（场景A：找同款）",
+            "",
+            f"- 🏷️ **品类**：{category or '未识别'}",
+            f"- 🎨 **主色**：{color or '未识别'}",
+            f"- 👗 **风格**：{style or '未识别'}",
+            f"- 🧵 **材质推测**：{material or '未识别'}",
+            f"- ✨ **设计细节**：{details or '—'}",
+            "",
+            f"🎯 **精准搜索关键词**：`{keyword}`",
+            "",
+            "📋 **下一步操作**：",
+            f"   1. 复制上方关键词，在浏览器打开 淘宝/京东/拼多多 搜索",
+            "   2. 把你看中的 **1-5 个商品详情链接** 粘贴给我",
+            "   3. 我会逐个抓取详情页，打分对比后输出 TOP3",
+            "",
+            "> ⚠️ **图片分析仅为视觉推测，完整参数请以商品网页为准**",
+        ]
+
+        # 记录为上次请求（便于后续衔接）
+        try:
+            req = ShoppingRequest(raw=keyword)
+            req.keyword = keyword
+            req.category = category
+            if color:
+                req.require_tags = [color]
+            self._last_request = req
+        except Exception:
+            pass
+
+        return "\n".join(lines)
+
+    # ---------- 场景B：多图对比 ----------
+    def _flow_image_compare(self, image_data_list: List[str]) -> str:
+        """多张图片：横向对比分析 → 输出对比表格 + 选购建议"""
+        n = len(image_data_list)
+        lines = [f"🖼️ **图片对比分析中**（场景B：{n} 张图片对比）……"]
+
+        profile_snapshot = self.profile.get_all()
+        md = analyze_images_compare(image_data_list, profile_snapshot) if analyze_images_compare else None
+
+        if not md:
+            return ("⚠️ 多图对比分析失败或未返回有效结果。\n"
+                    "可能原因：模型不支持视觉 / 图片过多 / 网络异常。\n"
+                    "你可以分别发商品链接给我，我用浏览器抓取真实数据后做对比。")
+
+        # 补充：图片分析后的衔接提示
+        md = md.strip()
+        if not md.endswith("为准"):
+            md += "\n\n> ⚠️ **图片分析仅为视觉推测，完整参数请以商品网页为准**"
+
+        result = md + (
+            "\n\n---\n"
+            "💡 **想要真实价格/评价/历史价？**\n"
+            "   把这几款商品的详情链接发给我，我会用浏览器抓取真实数据，重新打分对比。"
+        )
+        return result
+
+
+# ================= 命令行交互入口 =================
+def run_cli():
+    os.system("")  # 启用ANSI颜色（Windows）
+    session = ChatSession()
+    print("\n" + "=" * 60)
+    print(session.GREETING)
+    print("=" * 60 + "\n")
+    # 打印档案状态
+    if not session.profile.is_empty():
+        print("📋 已检测到你有之前保存的档案：")
+        print(session.profile.view_profile())
+        print()
+
+    while True:
+        try:
+            user = input("🧑 你：").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n👋 再见，随时欢迎回来购物～")
+            break
+        if not user:
+            continue
+        if user.lower() in ("quit", "exit", "退出", "再见", "拜拜"):
+            print("👋 再见，随时欢迎回来购物～")
+            break
+        if user.lower() in ("help", "帮助", "菜单"):
+            print(ChatSession.GREETING)
+            continue
+        reply = session.chat(user)
+        print("\n🤖 AI助手：")
+        print(_indent(reply))
+        print()
+
+
+def _indent(text: str, prefix: str = "   ") -> str:
+    return "\n".join(prefix + line for line in text.splitlines())
+
+
+if __name__ == "__main__":
+    # 支持参数：python shopping_agent.py demo — 自动跑一组演示
+    if len(sys.argv) > 1 and sys.argv[1] == "demo":
+        s = ChatSession()
+        demo_cases = [
+            "录入档案",
+            "165, 52",
+            "跳过",
+            "合身",
+            "白色,粉色,黑色",
+            "法式,甜美,通勤",
+            "纯棉,雪纺",
+            "收腰,修身",
+            "混合皮",
+            "张三, 13800000000, 北京市朝阳区建国路88号",
+            "查看档案",
+            "买一条夏天的连衣裙，预算200以内",
+            "第二款太宽松，换更修身的，预算升到300",
+            "买第1款",
+            "确认",
+            "我的订单",
+            "物流",
+            "售后 尺码不合适想换小一码",
+        ]
+        for i, q in enumerate(demo_cases, 1):
+            print(f"\n{'='*50}")
+            print(f"🎬 Demo [{i}/{len(demo_cases)}] 用户：{q}")
+            print(f"{'='*50}")
+            r = s.chat(q)
+            print(r)
+    else:
+        run_cli()

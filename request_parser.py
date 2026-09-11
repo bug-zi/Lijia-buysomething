@@ -1,0 +1,509 @@
+# -*- coding: utf-8 -*-
+"""
+购物需求解析器 — 从用户自然语言输入中提炼结构化需求
+识别：关键词、品类、预算（min/max）、平台、硬性要求（如材质/风格/版型/排除项）
+
+支持两级：
+  1) LLM 模式（可选，当 ai_client 已配置Key）：让大模型产出JSON，再与规则结果合并
+  2) 规则模式：纯正则 + 词典，永不依赖网络
+"""
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    from ai_client import parse_shopping_request_with_llm  # 可选 AI 增强
+except Exception:
+    parse_shopping_request_with_llm = None
+
+
+@dataclass
+class ShoppingRequest:
+    """结构化购物需求"""
+    raw: str
+    keyword: str = ""                       # 核心搜索词
+    category: Optional[str] = None
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    platforms: List[str] = field(default_factory=list)
+    require_tags: List[str] = field(default_factory=list)   # 硬性要求属性
+    exclude_tags: List[str] = field(default_factory=list)   # 排除属性
+    purpose: str = ""                       # 用途
+    is_adjustment: bool = False             # 是否为对上次推荐的修改
+    target_rank: Optional[int] = None       # 指向"第X款"
+    needs_clarify: List[str] = field(default_factory=list)  # 待追问的信息点
+
+    def summary(self) -> str:
+        parts = []
+        if self.keyword: parts.append(f"品类/关键词：{self.keyword}")
+        budget = ""
+        if self.price_min and self.price_max:
+            budget = f"¥{self.price_min}~¥{self.price_max}"
+        elif self.price_max:
+            budget = f"≤¥{self.price_max}"
+        elif self.price_min:
+            budget = f"≥¥{self.price_min}"
+        if budget: parts.append("预算：" + budget)
+        if self.platforms: parts.append("平台：" + "/".join(self.platforms))
+        if self.require_tags: parts.append("要求：" + "、".join(self.require_tags))
+        if self.exclude_tags: parts.append("避雷：" + "、".join(self.exclude_tags))
+        return "；".join(parts) if parts else "（空）"
+
+
+PLATFORM_WORDS = {
+    "淘宝/天猫": ["淘宝", "天猫", "taobao", "tmall", "tmail"],
+    "京东": ["京东", "jd", "京东自营"],
+    "拼多多": ["拼多多", "pdd", "百亿补贴"],
+    "抖音商城": ["抖音", "抖音商城", "直播间", "dy"],
+}
+
+# 典型品类线索词
+CATEGORY_HINTS = {
+    "连衣裙": ["连衣裙", "裙子", "长裙", "短裙", "半身裙", "旗袍", "裙"],
+    "运动鞋": ["运动鞋", "跑鞋", "球鞋", "帆布鞋", "老爹鞋", "篮球鞋", "小白鞋"],
+    "耳机": ["耳机", "降噪耳机", "头戴式耳机", "tws", "airpods"],
+    "手机": ["手机", "旗舰机", "iphone"],
+    "T恤": ["t恤", "polo", "短袖", "体恤", "tee"],
+}
+
+
+class RequestParser:
+
+    def parse(self, text: str, *, profile: Optional[Dict[str, Any]] = None,
+              previous: Optional["ShoppingRequest"] = None) -> ShoppingRequest:
+        # 1) 先走规则引擎得到稳定结构
+        req = self._parse_rules(text)
+
+        # 2) 尝试 LLM 补充（可选），失败完全不影响结果
+        if parse_shopping_request_with_llm is not None:
+            try:
+                prev_d = self._req_to_dict(previous) if previous else None
+                prof_d = dict(profile or {})
+                j = parse_shopping_request_with_llm(text, prof_d, prev_d)
+                if j:
+                    self._merge_llm_json(req, j)
+                    # 若规则没识别到"买第X款"但LLM识别到了，保留LLM的判断
+                    if req.target_rank is None and j.get("target_rank"):
+                        try: req.target_rank = int(j["target_rank"])
+                        except Exception: pass
+            except Exception:
+                # AI 增强失败静默回退
+                pass
+
+        # 3) 档案默认预算上限：用户未在本次输入里明示预算时，取档案 budget_max 作默认
+        if req.price_max is None and profile:
+            pb = profile.get("budget_max")
+            if pb is not None and str(pb).strip() not in ("", "0", "None"):
+                try:
+                    v = float(pb)
+                    if v > 0:
+                        req.price_max = v
+                        if "预算" not in (req.needs_clarify or []):
+                            # 标记本次预算来自档案（不视为待追问项）
+                            pass
+                except (ValueError, TypeError):
+                    pass
+
+        return req
+
+    def _parse_rules(self, text: str) -> ShoppingRequest:
+        """原来的 parse 全量逻辑（规则版），改名后不改动内部流程"""
+        req = ShoppingRequest(raw=text)
+        t = text.strip()
+        t_lower = t.lower()
+
+        # 0) 先识别「指向第几款购买」的强意图：开头是"买/确认/就要/就选 第X款/第X个/第X号"时，
+        #    不再做需求解析，避免"买第2款"被误识别为搜索"买"。
+        buy_first = re.match(
+            r"^\s*(买|购买|确认|就要|就选|选定|拍|下单|我要|我买)\s*"
+            r"(第\s*[一二三四五六1-6]\s*(款|个|号)|[1-6]\s*(款|个|号))",
+            t,
+        )
+        if buy_first:
+            req.target_rank = self._parse_rank(t)
+            return req
+
+        # 1) 预算解析："200以内 / 300块以下 / 100到200 / 预算500 / ≤300 / 200-300元 / 预算升到300"
+        req.price_min, req.price_max = self._parse_budget(t)
+
+        # 2) 平台识别
+        for plat, words in PLATFORM_WORDS.items():
+            if any(w.lower() in t_lower for w in words):
+                req.platforms.append(plat)
+
+        # 3) 品类识别
+        for cat, hints in CATEGORY_HINTS.items():
+            for h in hints:
+                if h.lower() in t_lower:
+                    req.category = cat
+                    break
+            if req.category:
+                break
+
+        # 4) 用途: "送礼/自用/上班/跑步/健身/拍照"
+        purpose_words = ["送礼", "礼物", "自用", "上班", "通勤", "跑步", "健身", "运动", "拍照",
+                         "约会", "旅游", "婚礼", "面试"]
+        for pw in purpose_words:
+            if pw in t:
+                req.purpose = pw
+                break
+
+        # 5) 排除项："不要XX/避开XX/讨厌XX/避雷XX" + "XX太XX，换"结构（如"第二款太宽松" -> 宽松→排除）
+        req.exclude_tags = self._parse_exclude(t)
+        req.exclude_tags.extend(self._parse_too_x_to_change(t))
+
+        # 6) 硬性要求：风格/材质/版型/颜色 线索词（若已在排除项，则不再加入要求）
+        require_candidates = self._parse_require(t)
+        excl_set = set(req.exclude_tags)
+        req.require_tags = [w for w in require_candidates if w not in excl_set]
+
+        # 7) 指向第几款："第2款" / "买第二款" / "1号"
+        req.target_rank = self._parse_rank(t)
+
+        # 8) 是否为修改意见（在推荐结果基础上）："换"/"改"/"不要那么"/"更XX"
+        adjust_markers = ["换", "改", "更", "不要那么", "不要太", "调", "换个", "换成", "重新选",
+                          "再挑", "再推荐", "换更"]
+        if any(m in t for m in adjust_markers) and (req.require_tags or req.exclude_tags or req.price_max):
+            req.is_adjustment = True
+
+        # 9) 核心关键词：提取剩余名词短语 — 简单策略：把已知字段去掉，再清理
+        req.keyword = self._extract_keyword(t, req)
+
+        # 10) 需要追问的信息点
+        if not req.keyword and not req.category and not req.target_rank:
+            req.needs_clarify.append("想买什么品类的商品？（如连衣裙/运动鞋/手机/T恤…）")
+        if req.keyword and not req.price_max and not req.price_min and req.category in ("连衣裙", "运动鞋", "耳机", "手机"):
+            # 不强制追问预算，有需要时系统会提示；但预算缺失时标记
+            req.needs_clarify.append("预算大概多少？（可以先看推荐再调整）")
+        return req
+
+    # --------- 子方法 ---------
+    def _parse_budget(self, t: str) -> Tuple[Optional[float], Optional[float]]:
+        t = t.replace("￥", "¥").replace("元", "").replace("块", "").replace("左右", "")
+        lo, hi = None, None
+        # 格式1: 100-300 / 100~300 / 100到300
+        m = re.search(r"(\d+(?:\.\d+)?)\s*[-～~到至]\s*(\d+(?:\.\d+)?)", t)
+        if m:
+            lo, hi = float(m.group(1)), float(m.group(2))
+            return lo, hi
+        # 格式2: 预算升到/调到/改为 XXX 或 预算XXX 或 XXX以内/以下/封顶/不超过/最多/≤XXX
+        m = re.search(
+            r"(预算|内|以内|以下|封顶|不超|不超过|最多|≤|小于等于|升到|调到|改为|提高到|增加到|改成)\s*"
+            r"(\d+(?:\.\d+)?)",
+            t,
+        )
+        if m:
+            hi = float(m.group(2))
+        else:
+            m = re.search(r"(\d+(?:\.\d+)?)\s*(以内|以下|封顶|之内|以内的|以下的)", t)
+            if m:
+                hi = float(m.group(1))
+        # 格式3: ≥XXX / 不低于XXX / XXX以上
+        m2 = re.search(r"(不低于|至少|≥|大于等于|以上)\s*(\d+(?:\.\d+)?)", t)
+        if m2:
+            lo = float(m2.group(2))
+        else:
+            m2 = re.search(r"(\d+(?:\.\d+)?)\s*(以上|起|起步)", t)
+            if m2 and (lo is None):
+                lo = float(m2.group(1))
+        # 格式4: 纯"预算 200" 或 "预算:200"
+        if hi is None and lo is None:
+            m = re.search(r"预算\s*[:：]?\s*(\d+(?:\.\d+)?)", t)
+            if m:
+                hi = float(m.group(1))
+        return lo, hi
+
+    def _parse_exclude(self, t: str) -> List[str]:
+        res: List[str] = []
+        # 用正则切出"不要XX/避开XX/讨厌XX/避雷XX"片段
+        # 说明：不再贪婪匹配到标点前的一切，改为「2~8 字内连续词」，避免"不要黑色，京东的"把"京东"当成排除项
+        pattern = r"(不要|讨厌|避开|避雷|不想要|别要|避免)\s*([\u4e00-\u9fa5A-Za-z0-9]{2,8})"
+        platform_tokens = set()
+        for words in PLATFORM_WORDS.values():
+            for w in words:
+                platform_tokens.add(w)
+        for m in re.finditer(pattern, t):
+            seg = m.group(2)
+            # 过滤: 平台词不算排除项
+            if seg in platform_tokens: continue
+            # 按分隔符切
+            items = re.split(r"[、,，/]", seg)
+            for it in items:
+                it = it.strip()
+                if 1 <= len(it) <= 8:
+                    # 过滤纯标点/停用词
+                    if it in ("的", "呢", "哦", "啊", "也", "还", "再", "就", "又"): continue
+                    res.append(it)
+        return res
+
+    def _parse_too_x_to_change(self, t: str) -> List[str]:
+        """
+        识别"第二款太宽松，换更修身的"模式：
+        - "太/有点/略 XX，(换/改/不要/调整/重新)" 中的 XX -> 加入排除
+        词表限定在版型/材质/风格等常见属性，避免误伤。
+        """
+        attr_words = [
+            "修身", "收腰", "显瘦", "宽松", "oversize", "紧身", "包臀", "A字",
+            "直筒", "阔腿", "高腰", "低腰", "短款", "长款", "长裙", "短裙",
+            "厚", "薄", "透", "大", "小", "紧", "长", "短", "重",
+            "纯棉", "棉", "雪纺", "针织", "缎面", "真丝", "亚麻", "棉麻", "牛仔",
+            "日系", "美式", "法式", "复古", "通勤", "商务", "甜酷", "辣妹",
+            "运动", "休闲", "国风", "新中式", "简约", "甜美", "可爱",
+            "白色", "米白", "黑色", "粉色", "红色", "蓝色", "绿色", "黄色", "灰色",
+            "米色", "卡其", "藏青", "紫色", "碎花", "印花",
+        ]
+        pattern = r"(?:第?[一二三四五六\d]*[款个号]?\s*)?(?:太|有点|略|过于|不够|不|比较|挺)\s*" \
+                  r"([\u4e00-\u9fa5A-Za-z]{1,8})\s*[，,。]?\s*(?:换|改|不要|调整|重新|换更|换个)"
+        excludes: List[str] = []
+        for m in re.finditer(pattern, t):
+            word = m.group(1).strip()
+            for aw in attr_words:
+                if aw.lower() in word.lower():
+                    excludes.append(aw)
+                    break
+        # 去重保序
+        seen = set()
+        out = []
+        for w in excludes:
+            if w not in seen:
+                seen.add(w)
+                out.append(w)
+        return out
+
+    def _parse_require(self, t: str) -> List[str]:
+        res: List[str] = []
+        # 颜色/风格/版型/材质 — 硬编码常见词表
+        color_words = ["白色", "米白", "黑色", "粉色", "红色", "蓝色", "绿色", "黄色", "灰色",
+                       "米色", "卡其", "藏青", "紫色", "杏色", "奶茶色", "碎花", "印花"]
+        style_words = ["日系", "美式", "法式", "复古", "通勤", "商务", "甜酷", "辣妹",
+                       "运动", "休闲", "国风", "新中式", "简约", "甜美", "可爱", "oversize",
+                       "街头", "潮牌", "正式", "职业"]
+        material_words = ["纯棉", "棉", "雪纺", "针织", "缎面", "真丝", "亚麻", "棉麻",
+                          "牛仔", "速干", "皮质", "透气"]
+        fit_words = ["修身", "收腰", "显瘦", "宽松", "oversize", "紧身", "包臀", "A字",
+                     "直筒", "阔腿", "高腰", "低腰", "短款", "长款", "长裙", "短裙", "中裙"]
+        func_words = ["降噪", "防水", "无线", "蓝牙", "专业", "旗舰", "长续航", "自拍", "影像"]
+        size_words = ["大码", "小码", "加大", "加小", "小个子", "高个"]
+        tables = [color_words, style_words, material_words, fit_words, func_words, size_words]
+        lower = t.lower()
+        for table in tables:
+            for w in table:
+                if w.lower() in lower:
+                    res.append(w)
+        # 去重，保序
+        seen = set()
+        ordered = []
+        for w in res:
+            if w not in seen:
+                seen.add(w)
+                ordered.append(w)
+        return ordered
+
+    def _parse_rank(self, t: str) -> Optional[int]:
+        m = re.search(r"(买|确认|就要|就选)?\s*第\s*([一二三四五六1-6])\s*[款个号]", t)
+        if m:
+            zh = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}
+            digit = m.group(2)
+            if digit in zh: return zh[digit]
+            try: return int(digit)
+            except: return None
+        # "就1款" / "1号"
+        m = re.search(r"(买|确认|就要|就选)\s*([1-6])\s*(款|个|号)?", t)
+        if m:
+            try: return int(m.group(2))
+            except: return None
+        return None
+
+    def _extract_keyword(self, t: str, req: ShoppingRequest) -> str:
+        s = t
+        # 移除数量/价格/平台等干扰词（顺序必须先处理 X-Y 范围，再处理单独带符号的残片如"-300"）
+        s = re.sub(r"(购买|帮我|我要|想要|想买|推荐|看看|搜索|查找|给我|请|麻烦)", "", s)
+        s = re.sub(r"预算\s*[:：]?\s*\d+(?:\.\d+)?", "", s)
+        # 先处理完整范围 200-300 / 200～300 / 200到300
+        s = re.sub(r"\d+(?:\.\d+)?\s*[-～~到至]\s*\d+(?:\.\d+)?", "", s)
+        # 再单独清掉残留的孤立数字（例如预算200留下的"200"、或误伤出来的"-300"）
+        s = re.sub(r"(?<![A-Za-z\u4e00-\u9fa5])[-～~到至]?\s*\d+(?:\.\d+)?(?![A-Za-z\u4e00-\u9fa5])", "", s)
+        # 金额单位与范围修饰（含"之间/以内/以下/以上/封顶/不超"）
+        s = re.sub(r"\d+(?:\.\d+)?\s*(元|块|以内|以下|以上|封顶|不超|以内的|以下的|以上的|之间)", "", s)
+        s = re.sub(r"(左右|之间|上下)", "", s)
+        for plat_words in PLATFORM_WORDS.values():
+            for w in plat_words:
+                # 整词替换，避免误伤夹在中文里的词
+                s = re.sub(re.escape(w), "", s)
+        for w in list(req.exclude_tags) + ["不要", "讨厌", "避开", "避雷", "不想要", "别要", "避免",
+                                          "更", "换", "改", "调", "的话", "一些", "一点", "的吧",
+                                          "然后", "的话", "还有", "或者", "什么", "那个", "的", "了",
+                                          "和", "与", "及", "着", "过", "啊", "呀", "呢", "哦",
+                                          "买", "一条", "一件", "一双", "一个", "一套", "一款",
+                                          "需要", "需求", "觉得", "打算", "准备"]:
+            if w: s = re.sub(re.escape(w), "", s)
+        # 移除"第X款"类
+        s = re.sub(r"第\s*[一二三四五六1-6]\s*[款个号]", "", s)
+        s = re.sub(r"[、,，。.!！?？；;：:·\-\s]+", " ", s).strip()
+        # 清理粘在实词前面的单字量词/助词（例如"个通勤运动鞋" → "通勤运动鞋"；
+        # "的连衣裙" → "连衣裙"）。循环剥到不再变化为止
+        _CJK_STOPS_PREFIX = set("个的了着过呢啊吧吗呀哦嗯和与及就又也都还只给让要到下上")
+        changed = True
+        while changed:
+            changed = False
+            if len(s) >= 3 and s[0] in _CJK_STOPS_PREFIX and s[1] not in _CJK_STOPS_PREFIX:
+                s = s[1:].lstrip()
+                changed = True
+
+        # 要求标签里的属性词 + category 去重（顺序保留 category 在前，属性在后）
+        final_parts: List[str] = []
+        if req.category:
+            final_parts.append(req.category)
+        # require_tags 中的属性词（若未出现在 keyword 残部中则追加）
+        tail_lower = s.lower()
+        for tag in req.require_tags:
+            if not tag or len(tag) <= 1: continue
+            if tag.lower() in tail_lower or (req.category and tag.lower() in req.category.lower()): continue
+            # 只追加非纯数字/预算表达式的属性词
+            if re.fullmatch(r"[-～~到至\d.元块]+", tag): continue
+            final_parts.append(tag)
+        # 额外保留关键字里其余不在 final_parts 的中文名词短语
+        existing_lower = " ".join(final_parts).lower()
+        cat = (req.category or "").lower()
+        # 单字量词/助词/停用字 — 直接丢弃
+        _CJK_STOPS = set("个的了着过呢啊吧吗呀哦嗯和与及就又也都还只给让要到下上")
+        for chunk in s.split():
+            chunk = chunk.strip()
+            if len(chunk) < 1: continue
+            # 丢弃纯数字/单字虚词
+            if chunk.isdigit(): continue
+            if len(chunk) == 1 and chunk in _CJK_STOPS: continue
+            cl = chunk.lower()
+            if cl in existing_lower: continue
+            if cat and cl == cat: continue
+            # 如果 chunk 包含整个 category 作为尾部（如"法式连衣裙"包含"连衣裙"=cat），
+            # 则剥离cat后把剩余部分（如"法式"）加入，避免最终关键词重复
+            if cat and cl.endswith(cat) and len(cl) > len(cat):
+                rest = chunk[:len(chunk) - len(req.category)].strip(" \t-_")
+                if len(rest) == 1 and rest in _CJK_STOPS:
+                    continue
+                if rest and len(rest) >= 2 and rest.lower() not in existing_lower:
+                    final_parts.append(rest)
+                    existing_lower += " " + rest.lower()
+                continue
+            # chunk 若是 "X通勤" 之类单字前缀拼接 + 合法属性词，则切分
+            if len(chunk) >= 3 and chunk[0] in _CJK_STOPS and chunk[1:] not in existing_lower:
+                rest = chunk[1:]
+                if len(rest) >= 2:
+                    final_parts.append(rest)
+                    existing_lower += " " + rest.lower()
+                    continue
+            if len(chunk) == 1: continue  # 其他单字丢弃
+            final_parts.append(chunk)
+
+        # 去重保序
+        seen = set()
+        uniq = []
+        for x in final_parts:
+            if x in seen: continue
+            seen.add(x)
+            uniq.append(x)
+        if uniq:
+            return " ".join(uniq)
+        return req.category or ""
+
+    # ---------------- AI 辅助合并工具 ----------------
+    def _merge_llm_json(self, req: ShoppingRequest, j: Dict[str, Any]) -> None:
+        """把 LLM 返回的JSON合并进现有规则解析结果（LLM 有值时覆盖/追加，无值保持规则不变）"""
+        # 核心 query/category
+        for src, dst, mode in [
+            ("query",    "keyword",  "overwrite_if"),
+            ("category", "category", "overwrite_if"),
+            ("use",      "purpose",  "overwrite_if"),
+        ]:
+            v = j.get(src)
+            if isinstance(v, str) and v.strip():
+                if not getattr(req, dst):
+                    setattr(req, dst, v.strip())
+                elif mode == "overwrite_if" and len(v.strip()) > len(getattr(req, dst)):
+                    setattr(req, dst, v.strip())
+
+        # 预算：LLM 给的数值优先（允许 0；0 表示"无上限"或"无下限"这类明确值）
+        for src, dst in (("budget_min", "price_min"), ("budget_max", "price_max")):
+            v = j.get(src)
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                # LLM 明确给了数字（包括 0）都覆盖；负数按 None 处理
+                nv = float(v)
+                setattr(req, dst, nv if nv >= 0 else None)
+            elif isinstance(v, str) and v.strip() == "0":
+                setattr(req, dst, 0.0)
+
+        # 平台
+        plats = j.get("platforms") or []
+        if isinstance(plats, list):
+            for p in plats:
+                p = str(p).strip()
+                if p and p not in req.platforms:
+                    req.platforms.append(p)
+
+        # 要求/排除 tag
+        def _add_list(arr, name):
+            vals = j.get(name) or []
+            if not isinstance(vals, list): return
+            for v in vals:
+                s = str(v).strip()
+                if s and s not in arr:
+                    arr.append(s)
+
+        _add_list(req.require_tags, "require_tags")
+        _add_list(req.exclude_tags, "exclude_tags")
+
+        # --- 去重与净化：避免 query/预算/品类信息重复塞进 require_tags ---
+        bag_str = f"{req.keyword}|{req.category or ''}|{req.purpose or ''}"
+        def _is_redundant(tag: str) -> bool:
+            if not tag: return True
+            # 明显预算表达式
+            if re.fullmatch(r"[-～~到至\d.元块以下以上以内封顶不超]+", tag): return True
+            t = tag.lower()
+            b = bag_str.lower()
+            # tag 已被 keyword 完全包含，或已包含 category（如 tag="法式连衣裙" 与 category="连衣裙"）
+            if t and (t in b or b and (req.category or "").lower() in t and len(t) - len((req.category or "").lower()) <= 2):
+                return True
+            return False
+
+        req.require_tags = [r for r in req.require_tags if not _is_redundant(r)]
+        req.exclude_tags = [r for r in req.exclude_tags if not _is_redundant(r)]
+
+        # 排除项与要求项冲突时优先排除
+        excl = set(req.exclude_tags)
+        req.require_tags = [r for r in req.require_tags if r not in excl]
+
+        # 增量 intent / target_rank / is_adjustment（LLM明确判断时覆盖规则）
+        if j.get("is_adjustment") is True:
+            req.is_adjustment = True
+        if j.get("target_rank"):
+            try: req.target_rank = int(j["target_rank"])
+            except Exception: pass
+
+    @staticmethod
+    def _req_to_dict(r: "ShoppingRequest") -> Dict[str, Any]:
+        return {
+            "query": r.keyword, "category": r.category,
+            "budget_min": r.price_min, "budget_max": r.price_max,
+            "platforms": list(r.platforms), "require_tags": list(r.require_tags),
+            "exclude_tags": list(r.exclude_tags), "use": r.purpose,
+            "is_adjustment": r.is_adjustment, "target_rank": r.target_rank,
+        }
+
+
+if __name__ == "__main__":
+    p = RequestParser()
+    for case in [
+        "买一条夏天的连衣裙，预算200以内，不要黑色，修身的",
+        "耳机 降噪 1500以下，京东的",
+        "第一款太宽松了，换更修身的，预算升到300",
+        "买第2款",
+        "推荐个通勤运动鞋，200-400之间",
+    ]:
+        r = p.parse(case)
+        print(f"输入: {case}")
+        print(f"  -> {r.summary()}  指向第{r.target_rank}款  修改?={r.is_adjustment}")
+        print(f"     require={r.require_tags}  exclude={r.exclude_tags}")
