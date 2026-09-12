@@ -14,6 +14,8 @@ import sys
 import json
 from typing import Optional, Tuple, List, Dict, Any
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))  # 业务模块目录
+
 from profile_module import ProfileManager
 from product_searcher import ProductSearcher, Product
 from recommender import Recommender
@@ -61,6 +63,8 @@ class ChatSession:
         self._cancelled = False                                # 用户是否已取消当前搜索
         self._pending_urls: List[str] = []                    # 被验证码拦截的URL，用于"继续抓取"重试
         self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
+        self._pending_clarify: Optional[Dict[str, Any]] = None  # 澄清问答状态 {"text":原需求,"stage":1|2}
+        self._last_chips: List[str] = []                      # 最近一次追问的选项按钮（仅供前端渲染）
 
     # ---------- 对外主入口 ----------
     def chat(self, user_input: str) -> str:
@@ -116,6 +120,14 @@ class ChatSession:
         if hist_m:
             return self._flow_price_history(hist_m.group(1))
 
+        # 2.9) 澄清问答进行中：本轮回复并入原需求（选择式补全）；强意图指令（买第X款/确认下单）先退出澄清
+        if self._pending_clarify:
+            if re.match(r"^\s*(?:买|确认|就要|就选|拍|下单|我要)?\s*第\s*[一二三四五六七八九十\d]+\s*[款个号]\s*$", text) \
+                    or re.match(r"^(确认|是|好|ok|对|支付|下单)$", text, flags=re.IGNORECASE):
+                self._pending_clarify = None
+            else:
+                return self._flow_clarify_answer(text)
+
         # 3) 待确认订单二次确认：回复「确认」「是」「OK」
         if self._pending_order is not None:
             if re.match(r"^(确认|是|好|ok|对|买|下单|支付)$", text, flags=re.IGNORECASE):
@@ -143,14 +155,15 @@ class ChatSession:
             merged = self._merge_request(self._last_request, req)
             return self._flow_recommend(text, merged)
 
-        # 4.3 信息不全，主动追问（不盲目搜索）
+        # 4.3 信息不全，主动追问（不盲目搜索）；品类/关键词全缺或只有泛词 → 澄清式多轮问答
+        #     泛词判定独立于 needs_clarify（LLM 脑补出「其他/东西」等关键词时 needs_clarify 可能为空）
         clarify_hint = ""
+        junk_kw = (not str(req.keyword or "").strip()) or \
+                  req.keyword.strip() in ("其他", "东西", "商品", "物品")
+        if not req.target_rank and not req.category and junk_kw \
+                and not req.require_tags and not req.purpose:
+            return self._start_clarify(text)
         if req.needs_clarify and not req.target_rank:
-            if not req.keyword and not req.category:
-                return (
-                    "🤔 我还没听清你想买什么。请告诉我：想买什么（品类）？预算大概多少？\n"
-                    "例如：「买一条夏天的连衣裙，预算200」"
-                )
             # 多项关键信息缺失（场景/材质/预算等≥2）→ 主动提问，不直接搜
             if len(req.needs_clarify) >= 2:
                 qs = "、".join(req.needs_clarify)
@@ -169,6 +182,66 @@ class ChatSession:
         return resp
 
     # ---------- 推荐流程（需求直达商品：限量真实搜索 → 打分 TOP3；失败回退粘贴链接） ----------
+    # ---------- 澄清式问答（模糊需求 → 选择式补全，规则引擎兜底，不依赖 LLM） ----------
+    _CLARIFY_CATEGORIES = ["连衣裙", "运动鞋", "耳机", "T恤", "手机"]
+    _CLARIFY_BUDGETS = ["100以内", "100-300", "300-800", "800-1500", "1500以上"]
+    _CLARIFY_SKIP = ("随便", "随便推荐", "都行", "不限", "跳过", "先搜", "直接搜", "无所谓")
+
+    def _start_clarify(self, text: str) -> str:
+        self._pending_clarify = {"text": text, "stage": 1}
+        self._last_chips = list(self._CLARIFY_CATEGORIES) + ["随便推荐"]
+        return (
+            "🤔 我还没听清你想买什么。**选一个品类**（点下方按钮或直接输入）：\n"
+            "连衣裙 / 运动鞋 / 耳机 / T恤 / 手机，也可以输入其他品类；回「随便推荐」就按当前信息直接搜。"
+        )
+
+    def _flow_clarify_answer(self, answer: str) -> str:
+        st = self._pending_clarify or {}
+        base_text = str(st.get("text") or "")
+        stage = int(st.get("stage") or 1)
+        skipped = any(k in answer for k in self._CLARIFY_SKIP)
+
+        # 第一轮：品类应答（跳过则直接搜原需求）
+        if stage <= 1:
+            if skipped:
+                self._pending_clarify = None
+                req = self.parser.parse(base_text, profile=self.profile.get_all(),
+                                        previous=self._last_request)
+                return self._flow_recommend(base_text, req)
+            merged = f"{base_text} {answer.strip()}"
+            req = self.parser.parse(merged, profile=self.profile.get_all(),
+                                    previous=self._last_request)
+            kw_ok = bool(req.category) or (req.keyword and req.keyword.strip() not in ("其他", "东西", "商品", "物品"))
+            if kw_ok:
+                if req.price_max is not None or req.price_min is not None:
+                    self._pending_clarify = None
+                    return self._flow_recommend(merged, req)
+                # 品类已定、预算缺失 → 第二轮问预算
+                self._pending_clarify = {"text": merged, "stage": 2}
+                self._last_chips = list(self._CLARIFY_BUDGETS) + ["不限预算"]
+                return ("好的，品类记下了：**" + (req.category or req.keyword) + "**。预算大概多少？\n"
+                        "100以内 / 100-300 / 300-800 / 800-1500 / 1500以上"
+                        "（点按钮或直接输入；回「不限预算」直接搜）")
+            # 品类没认出来：不卡死，如实告知后按原需求直接搜
+            self._pending_clarify = None
+            req2 = self.parser.parse(base_text, profile=self.profile.get_all(),
+                                     previous=self._last_request)
+            return f"没认出「{answer.strip()}」这个品类，我先按原需求「{base_text}」直接搜了。\n\n" + \
+                self._flow_recommend(base_text, req2)
+
+        # 第二轮：预算应答
+        merged = base_text if skipped else f"{base_text} {answer.strip()}"
+        self._pending_clarify = None
+        req = self.parser.parse(merged, profile=self.profile.get_all(),
+                                previous=self._last_request)
+        return self._flow_recommend(merged, req)
+
+    def pop_chips(self) -> List[str]:
+        """取走最近一次追问的选项（供 Web 端渲染按钮；取后即清）"""
+        chips = self._last_chips
+        self._last_chips = []
+        return chips
+
     def _flow_recommend(self, raw_text: str, req: ShoppingRequest) -> str:
         keyword = req.keyword or req.category or "商品"
         # 记录为上一次请求（后续可基于此调整）
@@ -712,6 +785,7 @@ class ChatSession:
             "cancelled": bool(self._cancelled),
             "pending_urls": list(self._pending_urls or []),
             "pending_search": bool(self._pending_search),
+            "pending_clarify": dict(self._pending_clarify) if self._pending_clarify else None,
         }
 
     @staticmethod
@@ -736,6 +810,8 @@ class ChatSession:
             rank = state.get("pending_rank")
             self._pending_rank = int(rank) if isinstance(rank, int) else None
             self._pending_urls = [str(u) for u in (state.get("pending_urls") or []) if u]
+            pc = state.get("pending_clarify")
+            self._pending_clarify = dict(pc) if isinstance(pc, dict) and pc.get("text") else None
         except Exception:
             # 手改文件导致个别字段不可恢复时整体放行，不让恢复动作中断服务
             pass

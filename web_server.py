@@ -20,6 +20,8 @@ API:
     POST /api/cancel          body: {"order_id":"...", "reason":"..."}
     GET  /api/login            网站登录态列表（配置库）
     POST /api/login            body: {"action":"check|login|clear","platform":"京东|淘宝/天猫"}
+    GET  /api/usercenter       用户中心（账户信息 + 界面/行为偏好）
+    POST /api/usercenter       body: {"nickname?":"...","avatar_color?":"...","prefs?":{...}}
     GET  /                    托管 index.html
 """
 
@@ -32,10 +34,13 @@ from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse, unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# 保证导入模块：脚本自身路径
+# 保证导入模块：脚本自身路径 + 业务模块目录 core/
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+CORE_DIR = os.path.join(BASE_DIR, "core")
+if CORE_DIR not in sys.path:
+    sys.path.insert(0, CORE_DIR)
 
 from shopping_agent import ChatSession  # noqa: E402
 from recommender import Recommender  # noqa: E402  会话工厂重建推荐器用
@@ -43,6 +48,7 @@ import ai_client  # noqa: E402  安全配置 & LLM 调用（key永远不回传�
 from product_searcher import save_scrape_cache  # noqa: E402  Trae 浏览器桥接缓存写入
 import config_store  # noqa: E402  配置库：网站登录态管理
 import session_store  # noqa: E402  会话持久化（chat_sessions.json）
+import user_center  # noqa: E402  用户中心：账户信息与偏好
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
@@ -185,6 +191,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "/api/login":
             json_response(self, 200, {"ok": True, "states": config_store.get_states()})
             return
+        if path == "/api/usercenter":
+            json_response(self, 200, {"ok": True, "user": user_center.load()})
+            return
         if path == "/api/cart":
             self._api_cart_get()
             return
@@ -232,6 +241,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "/api/login":
             self._api_login_post(body)
             return
+        if path == "/api/usercenter":
+            json_response(self, 200, {"ok": True, "user": user_center.save(body)})
+            return
         if path == "/api/cart":
             self._api_cart_post(body)
             return
@@ -277,6 +289,8 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                     (meta.get("title") or "") in ("", "新会话", "默认会话"):
                 session_store.rename_session(sid, msg[:20])
             reply = cs.chat(msg)
+            # 澄清式问答的选项按钮（无则空数组，前端不渲染）
+            chips = cs.pop_chips()
             # 额外返回状态快照，便于Web端其它Tab同步刷新
             snap = cs.snapshot()
             # 待确认预览（若处于pending）
@@ -303,6 +317,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             "ok": True,
             "session_id": sid,
             "reply": reply,
+            "chips": chips,
             "snapshot": snap,
             "pending_order": pending_preview,
         })

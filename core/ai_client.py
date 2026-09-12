@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 # ============== 基础路径与配置存储 ==============
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 KEY_FILE  = os.path.join(BASE_DIR, "api_key.json")
 
 ENV_API_KEY   = "SHOPPING_LLM_API_KEY"
@@ -443,10 +443,27 @@ def summarize_reviews_with_llm(product_name: str, good_raw: List[str],
     return None
 
 
+# 人群交互风格：按用户中心 persona 偏好注入导购润色的系统提示词（仅 LLM 增强，规则引擎不受影响）
+_PERSONA_STYLES: Dict[str, str] = {
+    "student": "用户是学生党：语气轻快亲切，点评侧重性价比与预算友好，少用营销话术。",
+    "office":  "用户是上班族：语气高效专业，点评侧重品质耐用、办公通勤场景与省时间。",
+    "senior":  "用户是长辈：语气亲切耐心、通俗易懂，点评侧重易用性、售后保障与性价比，避免网络用语。",
+}
+
+
 def polish_recommendation_with_llm(items: List[Dict[str, Any]],
-                                    profile: Dict[str, Any]) -> Optional[str]:
-    """把推荐TOP3对象润色为一份更像人类导购的建议报告（纯文本 Markdown）"""
+                                    profile: Dict[str, Any],
+                                    persona: Optional[str] = None) -> Optional[str]:
+    """把推荐TOP3对象润色为一份更像人类导购的建议报告（纯文本 Markdown）；
+    persona 缺省时自动读用户中心偏好，仅影响语气侧重，不改变事实判断"""
     if not items: return None
+    if persona is None:
+        try:
+            import user_center  # 仅标准库模块，无循环依赖
+            persona = user_center.get_prefs().get("persona", "default")
+        except Exception:
+            persona = "default"
+    style = _PERSONA_STYLES.get(persona or "", "")
     sys_prompt = """你是贴心但客观的购物顾问，语气简洁，不吹捧商品。
 输入为 TOP3 推荐对象列表和用户个人档案。
 请输出一段中文 Markdown 报告（不超过500字）：
@@ -456,6 +473,8 @@ def polish_recommendation_with_llm(items: List[Dict[str, Any]],
 不要重复返回整张大表格（上层已经渲染过），重点在"人味"点评和档案适配理由。
 最后加一句「下单前请再次核对尺码/颜色；如需调整请回：换第X款/更修身/换颜色等」。
 不要输出任何JSON。"""
+    if style:
+        sys_prompt += "\n" + style
     user_prompt = (
         f"[用户个人档案]\n{json.dumps(profile, ensure_ascii=False)}\n\n"
         f"[TOP3 推荐列表]\n{json.dumps(items, ensure_ascii=False, indent=2)}\n"

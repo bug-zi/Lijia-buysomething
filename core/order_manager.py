@@ -16,7 +16,7 @@ from product_searcher import Product
 from profile_module import ProfileManager
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 ORDERS_FILE = os.path.join(BASE_DIR, "orders.json")
 
 

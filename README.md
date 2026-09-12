@@ -91,35 +91,43 @@ AI：（模拟下单，生成订单号与运单号 → 物流随时间推进 →
 ```text
 ├── 启动购物助手-网页版.bat   # 网页版一键启动
 ├── 启动购物助手.bat          # CLI 一键启动
-├── shopping_agent.py         # 主 Agent 总控 ChatSession：意图分流、工作流串联
-├── web_server.py             # HTTP 后端：13 个 API 端点、静态托管（绑定 127.0.0.1）
-├── index.html                # 前端单页：6 个 Tab（对话/档案/订单/购物车/推荐/AI设置）
-├── request_parser.py         # 需求解析规则引擎 + LLM JSON 增强
-├── product_searcher.py       # 商品模型、三层回退搜索、演示 Mock 目录、抓取缓存
-├── web_scraper.py            # Playwright 单链接详情页抓取（反爬检测、字段提取）
-├── recommender.py            # 五维评分、TOP3 格式化、AI 点评接入
-├── order_manager.py          # 下单模拟、物流虚拟推进、售后/取消
-├── profile_module.py         # 偏好档案：19 批次分步引导录入
-├── virtual_cart.py           # 购物车 CRUD、降价监控
-├── ai_client.py              # LLM/视觉调用、Key 探测与脱敏、失败回退
+├── 安装浏览器驱动.bat        # 可选：安装 patchright/playwright 浏览器驱动
+├── shopping_agent.py         # 入口 1：主 Agent 总控 ChatSession（意图分流、工作流串联、CLI demo）
+├── web_server.py             # 入口 2：HTTP 后端（20 个 API 端点、静态托管，绑定 127.0.0.1）
+├── index.html                # 前端单页：6 个 Tab（对话/用户中心/订单/购物车/推荐/配置库）+ 主题/皮肤/新手引导
+├── core/                     # 业务模块目录（入口通过 sys.path 自动挂载）
+│   ├── request_parser.py     # 需求解析规则引擎 + LLM JSON 增强（含澄清问答泛词守卫）
+│   ├── product_searcher.py   # 商品模型、三层回退搜索、演示 Mock、抓取缓存
+│   ├── web_scraper.py        # Playwright/Patchright 真实搜索与详情抓取（反拦截、登录墙交还人工）
+│   ├── recommender.py        # 五维评分、TOP-N 格式化、AI 点评接入
+│   ├── order_manager.py      # 下单模拟、物流虚拟推进、售后/取消
+│   ├── profile_module.py     # 偏好档案：19 批次分步引导录入
+│   ├── virtual_cart.py       # 购物车 CRUD、降价监控
+│   ├── ai_client.py          # LLM/视觉调用、Key 探测与脱敏、人群风格注入、失败回退
+│   ├── session_store.py      # 多会话持久化（chat_sessions.json）
+│   ├── config_store.py       # 配置库：网站登录态元数据（绝不存 Cookie 内容）
+│   └── user_center.py        # 用户中心：账户信息与界面/行为偏好
 └── docs/                     # 项目文档库（见下）
 ```
 
-### 本地数据文件（JSON 即数据库）
+### 本地数据文件（JSON 即数据库，均在项目根目录）
 
 | 文件 | 内容 |
 |---|---|
 | `user_profile.json` | 用户偏好档案（敏感，勿外传） |
-| `scrape_cache.json` | 真实抓取缓存（30 分钟 TTL） |
+| `user_center.json` | 用户中心账户与偏好 |
+| `chat_sessions.json` | 多会话消息与状态 |
+| `scrape_cache.json` / `search_history.json` | 真实抓取缓存（30 分钟 TTL）/ 搜索历史 |
 | `virtual_cart.json` | 虚拟购物车 |
 | `orders.json` | 模拟订单与物流轨迹 |
+| `login_state.json` | 各平台登录状态元数据（不含 Cookie） |
 | `api_key.json` | LLM Key（已在 `.gitignore` 中排除，脱敏存储） |
 
 ## 安全与合规设计
 
 - **绝不代用户支付**：仅模拟下单流程，确认前后均有支付风险提醒；
 - **数据真实**：绝不编造商品数据，真实/演示双标注，抓取失败如实告知；
-- **抓取克制**：只抓用户主动粘贴的 1-5 个链接、真实有头浏览器、遇验证码交还人工、禁止批量遍历、不绕过平台风控；
+- **抓取克制**：按用户主动发起的购物需求限量搜索（每平台每次 ≤10 条，不翻页、不遍历、不轮询），详情页支持粘贴 1-5 个链接细抓，真实有头浏览器，遇验证码/登录墙交还人工，不绕过平台风控；
 - **隐私本地化**：全部数据存本机 JSON 文件，服务只绑定 `127.0.0.1`，Key 脱敏展示。
 
 ## 已知限制（如实告知）
@@ -131,7 +139,7 @@ AI：（模拟下单，生成订单号与运单号 → 物流随时间推进 →
 ## 开发与测试
 
 - 全流程回归：`python shopping_agent.py demo`（18 个演示用例）；
-- 各模块自带 `__main__` 自测入口，如 `python recommender.py`；
+- 各模块自带 `__main__` 自测入口，如 `python core/recommender.py`；
 - 部署形态：单机单进程，升级 = 替换文件重启 `.bat`。
 
 ## 文档体系

@@ -24,7 +24,7 @@ from product_searcher import Product, Review
 
 import config_store  # noqa: E402  配置库：抓取时顺带回写登录态
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 
 # 持久化用户配置目录：保存 cookies / 登录态 / 本地存储，实现会话复用
 BROWSER_PROFILE_DIR = os.path.join(BASE_DIR, ".browser_profile")
@@ -177,15 +177,23 @@ _FALLBACK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "Chrome/124.0.0.0 Safari/537.36")
 
 
-def _launch_browser(headless: bool = False):
+def _launch_browser(headless: bool = False, minimized: Optional[bool] = None):
+    """minimized=None 时按用户中心偏好决定（background=最小化启动、不抢焦点，窗口收进任务栏）；
+    登录/扫码等需要人工交互的调用方必须显式传 minimized=False 保证窗口可见。"""
+    if minimized is None:
+        try:
+            import user_center  # 仅标准库模块，无循环依赖
+            minimized = user_center.get_prefs().get("browser_popup") == "background"
+        except Exception:
+            minimized = False
     sp_factory, using_patchright = _get_sync_playwright()
     pw = sp_factory().start()
     launch_args = [
         "--disable-blink-features=AutomationControlled",
-        "--start-maximized",
         "--no-sandbox",
         "--disable-dev-shm-usage",
     ]
+    launch_args.append("--start-minimized" if (minimized and not headless) else "--start-maximized")
     channel = _find_system_browser()
     launch_kwargs: Dict[str, Any] = dict(
         user_data_dir=BROWSER_PROFILE_DIR,

@@ -70,7 +70,7 @@ echo [2/3] System Chrome/Edge found. No browser download needed.
 :verify
 REM ---- step 3: verify against the app's own check ----
 echo [3/3] Verifying ...
-%PY% -c "import web_scraper; assert web_scraper._has_playwright()"
+%PY% -c "import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), 'core')); import web_scraper; assert web_scraper._has_playwright()"
 if errorlevel 1 (
     echo [X] Verification failed. Please re-run this installer.
     pause

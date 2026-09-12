@@ -11,7 +11,7 @@ import re
 from typing import Dict, Optional, Any
 
 # 档案文件路径 - 所有文件保存在同一目录下
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 PROFILE_FILE = os.path.join(BASE_DIR, "user_profile.json")
 
 # 档案字段定义与中文名称映射

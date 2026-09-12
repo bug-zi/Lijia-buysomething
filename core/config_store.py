@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 LOGIN_STATE_FILE = os.path.join(BASE_DIR, "login_state.json")
 
 PLATFORMS: List[str] = ["京东", "淘宝/天猫"]
@@ -230,7 +230,7 @@ def _manual_login_worker(platform: str) -> None:
     pw = context = None
     try:
         from web_scraper import _launch_browser, _goto_login_and_wait  # 惰性导入
-        pw, context, page = _launch_browser()
+        pw, context, page = _launch_browser(minimized=False)   # 扫码登录必须弹窗可见
         try:
             page.bring_to_front()   # 登录窗口置前，避免用户找不到待扫码的窗口
         except Exception:

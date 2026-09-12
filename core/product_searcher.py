@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any, Tuple
 
 # 本地数据缓存目录
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 MOCK_DATA_FILE = os.path.join(BASE_DIR, "mock_products.json")
 
 PLATFORMS = ["淘宝/天猫", "京东", "拼多多", "抖音商城"]
