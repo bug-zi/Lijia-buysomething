@@ -7,3 +7,6 @@ orders.json
 user_profile.json
 search_history.json
 temp/
+.browser_profile/
+.codegraph/
+login_state.json
