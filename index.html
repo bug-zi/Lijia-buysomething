@@ -4,16 +4,20 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>🛒 全自动个人购物AI助手 — 网页版</title>
+<script>
+/* 首屏前恢复主题（避免深色模式闪白） */
+(function(){try{
+  if(localStorage.getItem('sa_mode')==='dark')document.documentElement.setAttribute('data-mode','dark');
+  var s=localStorage.getItem('sa_skin');
+  document.documentElement.setAttribute('data-skin', s||'classic');
+}catch(e){}})();
+</script>
 <style>
 /* ============== 全局变量 & reset ============== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* 两层主题体系：data-mode（浅色/深色 表面配色） × data-skin（皮肤 主题色系，默认 classic） */
 :root {
-  --primary: #1890ff;
-  --primary-dark: #096dd9;
-  --primary-soft: #e6f4ff;
-  --success: #52c41a;
-  --warning: #faad14;
-  --danger: #ff4d4f;
+  /* 浅色（默认）表面 */
   --text-1: #1f2937;
   --text-2: #4b5563;
   --text-3: #6b7280;
@@ -21,14 +25,76 @@
   --bg: #f3f6fb;
   --card: #ffffff;
   --chat-bg: #fafbfc;
-  --user-bubble: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
   --ai-bubble: #ffffff;
+  --success-bg: #e6fcec; --success-t: #237804;
+  --warn-bg: #fff8e6;    --warn-t: #ad6800;  --warn-border: #ffe58f;
+  --danger-bg: #fff1f0;  --danger-t: #cf1322;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
   --shadow:    0 6px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.05);
   --shadow-lg: 0 20px 40px rgba(16,24,40,.12), 0 4px 8px rgba(16,24,40,.06);
+  /* 皮肤变量（classic 默认值，其余皮肤在下方覆盖） */
+  --success: #52c41a;
+  --warning: #faad14;
+  --danger: #ff4d4f;
+  --primary: #1890ff;
+  --primary-dark: #096dd9;
+  --primary-soft-l: #e6f4ff;
+  --primary-soft-d: rgba(24,144,255,.16);
+  --ub-1: #1890ff; --ub-2: #096dd9;
+  --sidebar-grad: linear-gradient(180deg, #0b3d91 0%, #1890ff 100%);
+  --primary-shadow: 0 6px 16px rgba(24,144,255,.32);
+  --primary-focus: rgba(24,144,255,.15);
+  /* 模式组合变量 */
+  --primary-soft: var(--primary-soft-l);
+  --user-bubble: linear-gradient(135deg, var(--ub-1) 0%, var(--ub-2) 100%);
   --radius: 14px;
   --radius-sm: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Arial, sans-serif;
+  color-scheme: light;
+}
+/* ------ 皮肤（低饱和同色系，遵守配色规范） ------ */
+[data-skin="sakura"] {
+  --primary: #c06c84; --primary-dark: #9a4e63;
+  --primary-soft-l: #f9e9ef; --primary-soft-d: rgba(192,108,132,.18);
+  --ub-1: #c06c84; --ub-2: #9a4e63;
+  --sidebar-grad: linear-gradient(180deg, #6d3345 0%, #c06c84 100%);
+  --primary-shadow: 0 6px 16px rgba(192,108,132,.32);
+  --primary-focus: rgba(192,108,132,.16);
+}
+[data-skin="forest"] {
+  --primary: #3d8a68; --primary-dark: #2c6650;
+  --primary-soft-l: #e7f3ed; --primary-soft-d: rgba(61,138,104,.18);
+  --ub-1: #3d8a68; --ub-2: #2c6650;
+  --sidebar-grad: linear-gradient(180deg, #1e4433 0%, #3d8a68 100%);
+  --primary-shadow: 0 6px 16px rgba(61,138,104,.32);
+  --primary-focus: rgba(61,138,104,.16);
+}
+[data-skin="sunset"] {
+  --primary: #cf8a3e; --primary-dark: #a76a24;
+  --primary-soft-l: #faeedd; --primary-soft-d: rgba(207,138,62,.18);
+  --ub-1: #cf8a3e; --ub-2: #a76a24;
+  --sidebar-grad: linear-gradient(180deg, #7c4a17 0%, #cf8a3e 100%);
+  --primary-shadow: 0 6px 16px rgba(207,138,62,.32);
+  --primary-focus: rgba(207,138,62,.16);
+}
+/* ------ 深色模式表面 ------ */
+[data-mode="dark"] {
+  --text-1: #e6eaf1;
+  --text-2: #b6bfcc;
+  --text-3: #8794a7;
+  --border: #2a3140;
+  --bg: #12151c;
+  --card: #1b2029;
+  --chat-bg: #171b23;
+  --ai-bubble: #232a37;
+  --success-bg: rgba(82,196,26,.16); --success-t: #8ed77a;
+  --warn-bg: rgba(250,173,20,.15);   --warn-t: #f3c454; --warn-border: rgba(250,173,20,.35);
+  --danger-bg: rgba(255,77,79,.16);  --danger-t: #ff8a8d;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.35);
+  --shadow:    0 6px 16px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
+  --shadow-lg: 0 20px 40px rgba(0,0,0,.55), 0 4px 8px rgba(0,0,0,.45);
+  --primary-soft: var(--primary-soft-d);
+  color-scheme: dark;
 }
 html, body { height: 100%; }
 body {
@@ -49,7 +115,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 /* ------ 侧边栏 ------ */
 .sidebar {
   width: 260px; flex-shrink: 0;
-  background: linear-gradient(180deg, #0b3d91 0%, #1890ff 100%);
+  background: var(--sidebar-grad);
   color: #fff;
   display: flex; flex-direction: column;
   padding: 20px 14px 16px;
@@ -118,7 +184,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 }
 .topbar {
   height: 56px; flex-shrink: 0;
-  background: #fff;
+  background: var(--card);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 22px;
@@ -131,12 +197,32 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   background: var(--primary-soft); color: var(--primary-dark);
   border-radius: 999px; padding: 4px 10px; font-weight: 500;
 }
-.tag-pill.green { background: #e6fcec; color: #237804; }
-.tag-pill.warn  { background: #fff8e6; color: #ad6800; }
+.tag-pill.green { background: var(--success-bg); color: var(--success-t); }
+.tag-pill.warn  { background: var(--warn-bg); color: var(--warn-t); }
 .tag-pill .dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: currentColor;
 }
+
+/* 主题切换（模式 × 皮肤） */
+.theme-ctl { display: flex; align-items: center; gap: 12px; }
+.mode-btn {
+  padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 500;
+  border: 1px solid var(--border); background: var(--card); color: var(--text-2);
+  transition: all .18s ease;
+}
+.mode-btn:hover { border-color: var(--primary); color: var(--primary); }
+.skin-dots { display: flex; align-items: center; gap: 7px; }
+.skin-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--dot);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.6);
+  border: 2px solid transparent;
+  cursor: pointer; padding: 0;
+  transition: transform .15s ease, border-color .15s ease;
+}
+.skin-dot:hover { transform: scale(1.18); }
+.skin-dot.active { border-color: var(--text-2); transform: scale(1.12); }
 
 /* Tab 容器 */
 .tab-panel {
@@ -169,7 +255,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 16px;
   border-radius: 10px;
-  background: #fff; color: var(--text-1);
+  background: var(--card); color: var(--text-1);
   border: 1px solid var(--border);
   transition: all .18s ease;
   font-weight: 500;
@@ -178,11 +264,11 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .btn.primary {
   background: var(--user-bubble);
   color: #fff; border: none;
-  box-shadow: 0 6px 16px rgba(24,144,255,.32);
+  box-shadow: var(--primary-shadow);
 }
 .btn.primary:hover { color: #fff; transform: translateY(-1px); filter: brightness(1.05); }
 .btn.danger { color: var(--danger); border-color: #ffccc7; }
-.btn.danger:hover { background: #fff1f0; color: var(--danger); }
+.btn.danger:hover { background: var(--danger-bg); color: var(--danger); }
 .btn.ghost { border: none; background: transparent; color: var(--text-2); }
 .btn.ghost:hover { background: var(--primary-soft); color: var(--primary-dark); }
 .btn.sm { padding: 5px 10px; font-size: 12.5px; border-radius: 8px; }
@@ -194,13 +280,13 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 9px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card);
   transition: all .18s ease;
   color: var(--text-1);
 }
 .input:focus, .textarea:focus, .select:focus {
   border-color: var(--primary);
-  outline: 4px solid rgba(24,144,255,.12);
+  outline: 4px solid var(--primary-focus);
 }
 .textarea { min-height: 80px; resize: vertical; }
 .form-grid {
@@ -247,7 +333,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .session-item:hover { background: var(--bg); }
 .session-item.active {
   background: var(--primary-soft);
-  border-color: rgba(24,144,255,.35);
+  border-color: var(--primary-focus);
   color: var(--primary-dark);
 }
 .session-item .s-title {
@@ -264,7 +350,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   font-size: 11px; color: var(--text-3);
   padding: 1px 5px; border-radius: 5px;
 }
-.session-item .s-meta .s-del:hover { color: var(--danger); background: #fff1f0; }
+.session-item .s-meta .s-del:hover { color: var(--danger); background: var(--danger-bg); }
 .session-toggle-btn { display: none; }
 .chat-wrap {
   flex: 1; min-width: 0;
@@ -295,7 +381,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 }
 .chat-msg.user { flex-direction: row-reverse; }
 .chat-msg.user .avatar { background: var(--user-bubble); color: #fff; box-shadow: var(--shadow-sm); }
-.chat-msg.ai   .avatar { background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.chat-msg.ai   .avatar { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
 .chat-bubble {
   max-width: 78%;
   padding: 11px 14px;
@@ -324,7 +410,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .chat-bubble ul, .chat-bubble ol { padding-left: 1.3em; margin: .4em 0; }
 .chat-bubble li { margin: .15em 0; }
 .chat-bubble code {
-  background: rgba(24,144,255,.1); color: var(--primary-dark);
+  background: var(--primary-soft); color: var(--primary-dark);
   padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
 }
 .chat-bubble pre {
@@ -342,14 +428,14 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 }
 .chat-bubble th { background: var(--primary-soft); color: var(--primary-dark); }
 .chat-bubble strong { color: var(--primary-dark); font-weight: 600; }
-.chat-msg.user .chat-bubble strong { color: #ffe58f; }
+.chat-msg.user .chat-bubble strong { color: var(--warn-border); }
 
 /* 输入区 */
 .chat-input-wrap {
   margin-top: 14px;
   display: flex; gap: 10px; align-items: flex-end;
   padding: 10px 10px 10px 14px;
-  background: #fff; border: 1px solid var(--border);
+  background: var(--card); border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: var(--shadow);
 }
@@ -362,13 +448,13 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 }
 .chat-input-wrap:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(24,144,255,.15), var(--shadow);
+  box-shadow: 0 0 0 4px var(--primary-focus), var(--shadow);
 }
 .send-btn {
   height: 40px; width: 40px; border-radius: 12px; flex-shrink: 0;
   background: var(--user-bubble); color: #fff;
   display: grid; place-items: center;
-  box-shadow: 0 6px 16px rgba(24,144,255,.35);
+  box-shadow: var(--primary-shadow);
   transition: all .18s ease;
   font-size: 18px;
 }
@@ -413,7 +499,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .chip {
   font-size: 12.5px; padding: 5px 12px;
   border-radius: 999px;
-  background: #fff; border: 1px solid var(--border);
+  background: var(--card); border: 1px solid var(--border);
   color: var(--text-2);
   transition: all .18s ease;
   cursor: pointer;
@@ -470,7 +556,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--card);
   box-shadow: var(--shadow-sm);
   transition: all .2s ease;
 }
@@ -482,12 +568,12 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   background: var(--primary-soft); color: var(--primary-dark);
   font-weight: 600;
 }
-.order-card .status-box.paid   { background: #e6fcec; color: #237804; }
+.order-card .status-box.paid   { background: var(--success-bg); color: var(--success-t); }
 .order-card .status-box.shipped,
-.order-card .status-box.t { background: #fff8e6; color: #ad6800; }
+.order-card .status-box.t { background: var(--warn-bg); color: var(--warn-t); }
 .order-card .status-box.delivered { background: #e6f4ff; color: #0050b3; }
 .order-card .status-box.refund,
-.order-card .status-box.sale { background: #fff1f0; color: #cf1322; }
+.order-card .status-box.sale { background: var(--danger-bg); color: var(--danger-t); }
 .order-card .status-box.cancel { background: #f5f5f5; color: #595959; }
 .status-box .big { font-size: 15px; }
 .status-box .small { font-size: 11px; font-weight: 400; opacity: .85; }
@@ -511,9 +597,9 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   text-align: center; padding: 2px 6px; border-radius: 10px;
   font-size: 11.5px; font-weight: 500;
 }
-.track-item .status-pill.ok { background: #e6fcec; color: #237804; }
-.track-item .status-pill.warn { background: #fff8e6; color: #ad6800; }
-.track-item .status-pill.err { background: #fff1f0; color: #cf1322; }
+.track-item .status-pill.ok { background: var(--success-bg); color: var(--success-t); }
+.track-item .status-pill.warn { background: var(--warn-bg); color: var(--warn-t); }
+.track-item .status-pill.err { background: var(--danger-bg); color: var(--danger-t); }
 
 /* 弹窗：售后/取消/物流详情 */
 .modal-mask {
@@ -524,7 +610,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .modal-mask.open { display: flex; }
 .modal {
   width: min(720px, 92vw); max-height: 86vh; overflow: auto;
-  background: #fff; border-radius: 18px; box-shadow: var(--shadow-lg);
+  background: var(--card); border-radius: 18px; box-shadow: var(--shadow-lg);
   padding: 22px 24px;
 }
 .modal h3 { margin-bottom: 14px; }
@@ -537,7 +623,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
 }
 .rec-card {
-  background: #fff; border-radius: var(--radius);
+  background: var(--card); border-radius: var(--radius);
   border: 1px solid var(--border);
   padding: 16px;
   box-shadow: var(--shadow-sm);
@@ -569,8 +655,8 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .rec-card dd { font-size: 13px; color: var(--text-1); margin-left: 0; }
 .rec-card dd.good::before { content: "✅ "; }
 .rec-card dd.bad::before  { content: "⚠️ "; }
-.rec-card dd.good { color: #237804; }
-.rec-card dd.bad  { color: #ad6800; }
+.rec-card dd.good { color: var(--success-t); }
+.rec-card dd.bad  { color: var(--warn-t); }
 .rec-card .score-grid {
   display: grid; grid-template-columns: repeat(6, 1fr);
   gap: 6px; margin: 10px 0 0;
@@ -592,7 +678,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   display: flex; flex-direction: column; gap: 8px;
 }
 .toast {
-  background: #fff; border-radius: 10px;
+  background: var(--card); border-radius: 10px;
   padding: 10px 14px; box-shadow: var(--shadow-lg);
   border-left: 4px solid var(--primary);
   font-size: 13px; min-width: 200px;
@@ -679,6 +765,15 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   <main class="main">
     <div class="topbar">
       <h2 id="topbar-title">💬 对话购物 · 自然语言驱动全流程</h2>
+      <div class="theme-ctl">
+        <div class="skin-dots" title="皮肤色系">
+          <button class="skin-dot" data-skin="classic" style="--dot:#1890ff" onclick="setSkin('classic')" title="经典蓝"></button>
+          <button class="skin-dot" data-skin="sakura"  style="--dot:#c06c84" onclick="setSkin('sakura')"  title="樱花粉"></button>
+          <button class="skin-dot" data-skin="forest"  style="--dot:#3d8a68" onclick="setSkin('forest')"  title="森野绿"></button>
+          <button class="skin-dot" data-skin="sunset"  style="--dot:#cf8a3e" onclick="setSkin('sunset')"  title="暖阳橙"></button>
+        </div>
+        <button class="mode-btn" id="mode-btn" onclick="toggleMode()" title="深色/浅色模式">深色模式</button>
+      </div>
       <div class="meta">
         <span class="tag-pill green"><span class="dot"></span>后端已连接</span>
         <span class="tag-pill warn"  id="profile-badge"><span class="dot"></span>档案待完善</span>
@@ -917,6 +1012,28 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 /* =============== 基础工具 =============== */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+/* ===== 主题切换：深色/浅色 + 皮肤色系（localStorage 持久化，首屏前已在 head 恢复） ===== */
+function applyMode(mode) {
+  document.documentElement.setAttribute("data-mode", mode);
+  try { localStorage.setItem("sa_mode", mode); } catch (e) {}
+  const btn = $("#mode-btn");
+  if (btn) btn.textContent = mode === "dark" ? "浅色模式" : "深色模式";
+}
+function toggleMode() {
+  const dark = document.documentElement.getAttribute("data-mode") === "dark";
+  applyMode(dark ? "light" : "dark");
+}
+function applySkin(skin) {
+  document.documentElement.setAttribute("data-skin", skin);
+  try { localStorage.setItem("sa_skin", skin); } catch (e) {}
+  $$(".skin-dot").forEach(d => d.classList.toggle("active", d.dataset.skin === skin));
+}
+function setSkin(skin) { applySkin(skin); }
+(function initTheme() {
+  applyMode(document.documentElement.getAttribute("data-mode") === "dark" ? "dark" : "light");
+  applySkin(document.documentElement.getAttribute("data-skin") || "classic");
+})();
 function toast(msg, type="") {
   const el = document.createElement("div");
   el.className = "toast " + type;
@@ -1342,7 +1459,7 @@ function renderCart(items, alerts) {
   const list = $("#cart-list");
   const ab = $("#cart-alerts");
   if (alerts && alerts.length) {
-    ab.style.display = ""; ab.innerHTML = alerts.map(a=>`<div class="chat-bubble" style="background:#fffbe6;border:1px solid #ffe58f;padding:8px 12px;margin:4px 0;">${escapeHtml(a)}</div>`).join("");
+    ab.style.display = ""; ab.innerHTML = alerts.map(a=>`<div class="chat-bubble" style="background:var(--warn-bg);border:1px solid var(--warn-border);padding:8px 12px;margin:4px 0;">${escapeHtml(a)}</div>`).join("");
   } else { ab.style.display = "none"; ab.innerHTML=""; }
   if (!items.length) {
     list.innerHTML = `<div class="empty"><span class="big">🛒</span>购物车为空 — 先做一次推荐，再回「把第1款加入购物车」。</div>`;
@@ -1431,9 +1548,9 @@ function showApiMsg(text, kind){
   const el = $("#api-message");
   el.style.display = "";
   el.textContent = text;
-  if(kind === "ok")  { el.style.background = "#e6fcec"; el.style.color = "#237804"; }
-  else if(kind==="warn"){ el.style.background = "#fff8e6"; el.style.color = "#ad6800"; }
-  else                 { el.style.background = "#fff1f0"; el.style.color = "#cf1322"; }
+  if(kind === "ok")  { el.style.background = "var(--success-bg)"; el.style.color = "var(--success-t)"; }
+  else if(kind==="warn"){ el.style.background = "var(--warn-bg)"; el.style.color = "var(--warn-t)"; }
+  else                 { el.style.background = "var(--danger-bg)"; el.style.color = "var(--danger-t)"; }
 }
 async function apiKeyAction(action){
   const key   = $("#api-key-input").value.trim();
@@ -1769,7 +1886,7 @@ function tryExtractAndRenderRecommendations(text) {
   grid.innerHTML = recs.map(r => `
     <div class="rec-card">
       <div class="rank">${r.rank}</div>
-      <span class="platform">${r.platform || ""} · ${r.pid ? "<code style='background:#fff1b8;padding:1px 4px;border-radius:4px;'>" + r.pid + "</code>" : ""}</span>
+      <span class="platform">${r.platform || ""} · ${r.pid ? "<code style='background:var(--warn-bg);padding:1px 4px;border-radius:4px;'>" + r.pid + "</code>" : ""}</span>
       <h4>${r.name}</h4>
       <div class="price-line">
         <span class="final">¥${r.finalPrice}</span>
