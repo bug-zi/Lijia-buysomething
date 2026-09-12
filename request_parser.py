@@ -33,6 +33,8 @@ class ShoppingRequest:
     is_adjustment: bool = False             # 是否为对上次推荐的修改
     target_rank: Optional[int] = None       # 指向"第X款"
     needs_clarify: List[str] = field(default_factory=list)  # 待追问的信息点
+    top_n: Optional[int] = None             # 用户指定的最终输出条数（如"排名前5"），None=默认TOP3
+    per_platform_n: Optional[int] = None    # 用户指定的每平台候选条数（如"各筛前4名"）
 
     def summary(self) -> str:
         parts = []
@@ -48,6 +50,7 @@ class ShoppingRequest:
         if self.platforms: parts.append("平台：" + "/".join(self.platforms))
         if self.require_tags: parts.append("要求：" + "、".join(self.require_tags))
         if self.exclude_tags: parts.append("避雷：" + "、".join(self.exclude_tags))
+        if self.top_n: parts.append(f"条数：前{self.top_n}名")
         return "；".join(parts) if parts else "（空）"
 
 
@@ -117,7 +120,7 @@ class RequestParser:
         #    不再做需求解析，避免"买第2款"被误识别为搜索"买"。
         buy_first = re.match(
             r"^\s*(买|购买|确认|就要|就选|选定|拍|下单|我要|我买)\s*"
-            r"(第\s*[一二三四五六1-6]\s*(款|个|号)|[1-6]\s*(款|个|号))",
+            r"(第\s*(?:[一二三四五六七八九十]|10|[1-9])\s*(款|个|号)|(?:10|[1-9])\s*(款|个|号))",
             t,
         )
         if buy_first:
@@ -126,6 +129,9 @@ class RequestParser:
 
         # 1) 预算解析："200以内 / 300块以下 / 100到200 / 预算500 / ≤300 / 200-300元 / 预算升到300"
         req.price_min, req.price_max = self._parse_budget(t)
+
+        # 1.5) 条数解析："排名前5 / 前10名 / TOP5 / 推荐8款 / 各平台前4名"（用户指定优先于默认TOP3）
+        req.top_n, req.per_platform_n = self._parse_top_n(t)
 
         # 2) 平台识别
         for plat, words in PLATFORM_WORDS.items():
@@ -179,6 +185,56 @@ class RequestParser:
         return req
 
     # --------- 子方法 ---------
+    _CN_NUM = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+    @classmethod
+    def _cn_to_int(cls, s: str) -> Optional[int]:
+        if s.isdigit():
+            return int(s)
+        return cls._CN_NUM.get(s)
+
+    def _parse_top_n(self, t: str) -> Tuple[Optional[int], Optional[int]]:
+        """解析用户指定的推荐条数。返回 (最终输出条数, 每平台候选条数)，均可为 None。
+        安全上限 10（与抓取克制规则一致：每平台每次 ≤10 条）。"""
+        n_final: Optional[int] = None
+        n_per: Optional[int] = None
+
+        # 每平台候选数："各(筛选/选出…)前4名"
+        m_per = re.search(r"各[^前。,，]{0,8}?前\s*([0-9一二三四五六七八九十]+)\s*(?:名|个|款|位)", t)
+        if m_per:
+            v = self._cn_to_int(m_per.group(1))
+            if v:
+                n_per = v
+
+        # 最终输出条数：取不在"各…前N"片段内的最后一个"前N"
+        # （"淘宝京东各筛前4名…最终排名前5"→前4归每平台、前5归最终；单位可省略，如"排名前5的商品"）
+        per_span = m_per.span() if m_per else None
+        for mm in re.finditer(r"前\s*([0-9一二三四五六七八九十]+)\s*(?:名|个|款|位|条)?", t):
+            if per_span and mm.start() < per_span[1] and mm.end() > per_span[0]:
+                continue
+            v = self._cn_to_int(mm.group(1))
+            if v:
+                n_final = v  # 持续覆盖 → 保留最后一个匹配
+
+        if n_final is None:
+            m = re.search(r"\btop\s*(\d{1,2})\b", t, re.IGNORECASE)
+            if m:
+                n_final = int(m.group(1))
+        if n_final is None:
+            # "推荐/挑/选/给我 + N + 款"（N≥2 才认定，避免"推荐一款"误判）
+            m = re.search(r"(?:推荐|挑选?|选出|给?我)\s*(\d{1,2})\s*款", t)
+            if m:
+                v = int(m.group(1))
+                if v >= 2:
+                    n_final = v
+
+        if n_final is not None:
+            n_final = max(1, min(10, n_final))
+        if n_per is not None:
+            n_per = max(1, min(10, n_per))
+        return n_final, n_per
+
     def _parse_budget(self, t: str) -> Tuple[Optional[float], Optional[float]]:
         t = t.replace("￥", "¥").replace("元", "").replace("块", "").replace("左右", "")
         lo, hi = None, None
@@ -301,15 +357,13 @@ class RequestParser:
         return ordered
 
     def _parse_rank(self, t: str) -> Optional[int]:
-        m = re.search(r"(买|确认|就要|就选)?\s*第\s*([一二三四五六1-6])\s*[款个号]", t)
+        m = re.search(r"(买|确认|就要|就选)?\s*第\s*([一二三四五六七八九十]|10|[1-9])\s*[款个号]", t)
         if m:
-            zh = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}
             digit = m.group(2)
-            if digit in zh: return zh[digit]
-            try: return int(digit)
-            except: return None
+            v = self._cn_to_int(digit)
+            if v: return v
         # "就1款" / "1号"
-        m = re.search(r"(买|确认|就要|就选)\s*([1-6])\s*(款|个|号)?", t)
+        m = re.search(r"(买|确认|就要|就选)\s*(10|[1-9])\s*(款|个|号)?", t)
         if m:
             try: return int(m.group(2))
             except: return None
@@ -319,6 +373,12 @@ class RequestParser:
         s = t
         # 移除数量/价格/平台等干扰词（顺序必须先处理 X-Y 范围，再处理单独带符号的残片如"-300"）
         s = re.sub(r"(购买|帮我|我要|想要|想买|推荐|看看|搜索|查找|给我|请|麻烦)", "", s)
+        # 条数短语先整段移除（前N名 / 各筛前N名 / TOP N / 推荐N款），避免数字剥离后留下残片
+        s = re.sub(r"各[^。,，\s]{0,8}?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
+        s = re.sub(r"(?:排名|综合)?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
+        s = re.sub(r"top\s*\d{1,2}", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"(?:推荐|挑选?|选出|给?我)?\s*\d{1,2}\s*款", "", s)
+        s = re.sub(r"(各|筛选出?|选出|最合适|综合比较|最终|排名|放在一块)", "", s)
         s = re.sub(r"预算\s*[:：]?\s*\d+(?:\.\d+)?", "", s)
         # 先处理完整范围 200-300 / 200～300 / 200到300
         s = re.sub(r"\d+(?:\.\d+)?\s*[-～~到至]\s*\d+(?:\.\d+)?", "", s)

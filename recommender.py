@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-推荐打分模块 + TOP3 格式化输出
+推荐打分模块 + TOP-N 格式化输出（默认3条，用户指定条数优先）
 评分维度：
 1. 档案匹配度   (30%) — 颜色、风格、尺码、材质、版型偏好对齐程度
 2. 性价比       (25%) — 同价位销量/优惠/原价对比
 3. 真实口碑     (20%) — 好评率、带图追评数、评价总量
 4. 差评风险     (15%) — 差评点数量/严重程度
 5. 发货时效     (10%) — 发货天数、是否自营/次日达
-输出严格限制为 TOP3，并附带横向对比与档案适配说明
+输出条数默认 TOP3，支持用户指定条数（安全上限10，抓取克制），并附带横向对比与档案适配说明
 """
 
 from dataclasses import dataclass
@@ -106,7 +106,7 @@ class ScoreBreakdown:
 
 
 class Recommender:
-    """推荐器：结合个人档案对商品打分并输出TOP3"""
+    """推荐器：结合个人档案对商品打分并输出TOP-N（默认3条）"""
 
     WEIGHTS = dict(
         profile_match=0.30,
@@ -374,7 +374,7 @@ class Recommender:
         budget: Optional[float] = None,
         topn: int = 3,
     ) -> Tuple[List[Product], List[ScoreBreakdown]]:
-        """对用户粘贴链接抓取到的商品列表打分排序，输出 TOP3"""
+        """对用户粘贴链接抓取到的商品列表打分排序，输出前 topn 条"""
         if not products:
             return [], []
         scored = [(p, self.score_product(p, budget)) for p in products]
@@ -386,7 +386,7 @@ class Recommender:
         return chosen_p, chosen_s
 
     # ========== 输出格式化 ==========
-    def format_top3(
+    def format_top(
         self,
         products: List[Product],
         scores: List[ScoreBreakdown],
@@ -396,7 +396,7 @@ class Recommender:
             return "⚠️  未找到符合条件的商品，建议调整价格区间或关键词。"
 
         lines = []
-        lines.append("📦 **为你选出TOP3最优商品**（结合你的个人档案打分）")
+        lines.append(f"📦 **为你选出TOP{len(products)}最优商品**（结合你的个人档案打分）")
         if extra_require:
             lines.append(f"   · 当前筛选条件：{extra_require}")
         lines.append("")
@@ -489,7 +489,7 @@ class Recommender:
             # 0-100 评分
             lines.append(f"- **评分（0-100）**：匹配 **{s.profile_match:.0f}**  ·  性价比 **{s.value:.0f}**  ·  口碑 **{s.reputation:.0f}**  ·  风险 **{100-s.risk:.0f}**  ·  时效 **{s.ship:.0f}**  ·  总分 **{s.total:.0f}**")
             # 💡购买建议
-            advice = "首选" if idx == 1 else ("备选" if idx == 2 else "谨慎选择")
+            advice = "首选" if idx == 1 else ("备选" if idx <= 3 else "谨慎选择")
             lines.append(f"- 💡 **购买建议**：{advice}。{'、'.join(p.after_sale) if p.after_sale else '无'}｜预计{p.ship_days}天内发货")
             # 🔗商品链接
             if p.source_url:
@@ -668,4 +668,4 @@ if __name__ == "__main__":
     })
     rec = Recommender(pm)
     prods, scores = rec.recommend("夏天连衣裙", price_max=250)
-    print(rec.format_top3(prods, scores))
+    print(rec.format_top(prods, scores))

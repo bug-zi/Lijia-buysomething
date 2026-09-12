@@ -2,7 +2,7 @@
 """
 主Agent总控 + 自由对话交互模块（模块B）
 完整工作流程：
-1. 需求解析 → 2. 跨平台搜索 → 3. 筛选打分 → 4. 输出TOP3 → 5. 用户确认 → 6. 下单执行 → 7. 物流跟踪
+1. 需求解析 → 2. 跨平台搜索 → 3. 筛选打分 → 4. 输出TOP-N（默认3，用户指定条数优先） → 5. 用户确认 → 6. 下单执行 → 7. 物流跟踪
 入口：
   - 编程调用：ChatSession.chat(user_input)
   - 命令行交互：python shopping_agent.py
@@ -42,7 +42,7 @@ class ChatSession:
         "你可以随时说：\n"
         "  · 「录入档案」建立/补充偏好；「查看档案」「修改身高=175」「清空档案」\n"
         "  · 「买一条夏天的连衣裙，预算200以内」直接提需求\n"
-        "  · 推荐后可回「买第2款」「换更修身的」「预算升到300」\n"
+        "  · 推荐后可回「买第2款」「换更修身的」「预算升到300」「给我前5名」\n"
         "  · 「我的订单」「物流 ODxxxx」「售后 ODxxxx 尺码不合适」"
     )
 
@@ -175,10 +175,12 @@ class ChatSession:
         self._last_request = req
         self._pending_search = False
 
-        # 真实搜索优先（每平台限量 ≤10 条，默认 6；登录墙交还人工）
+        # 真实搜索优先（每平台限量 ≤10 条：默认 6，用户指定"各前N"时用 N；登录墙交还人工）
+        per_plat = req.per_platform_n if req.per_platform_n else 6
+        per_plat = max(2, min(10, per_plat))
         try:
             products, block_reason, need_human = self.searcher.search_real(
-                keyword, platforms=req.platforms or None, max_per_platform=6)
+                keyword, platforms=req.platforms or None, max_per_platform=per_plat)
         except Exception as e:
             products, block_reason, need_human = [], f"真实搜索异常：{e}", False
 
@@ -197,9 +199,9 @@ class ChatSession:
                 if no_price:
                     pass  # 数量少时静默剔除，避免误导性的 ¥0 展示
                 products, scores = self.recommender.recommend_from_products(
-                    products, budget=req.price_max)
+                    products, budget=req.price_max, topn=req.top_n or 3)
                 extra = req.summary() or None
-                resp = self.recommender.format_top3(products, scores, extra_require=extra)
+                resp = self.recommender.format_top(products, scores, extra_require=extra)
                 return resp + (
                     "\n---\n> ℹ️ 以上来自浏览器实时搜索的**真实商品**（📦 价格/图片为搜索页所见，"
                     "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
@@ -216,7 +218,7 @@ class ChatSession:
             "📋 **下一步操作**：",
             f"   1. 在浏览器打开 淘宝/京东/拼多多，搜索 `{keyword}`",
             "   2. 浏览搜索结果，把你看中的 **1-5 个商品详情链接** 复制粘贴给我",
-            "   3. 我会逐个抓取详情页，提取价格/评价/规格，打分对比后输出 TOP3",
+            "   3. 我会逐个抓取详情页，提取价格/评价/规格，打分对比后输出 TOP-N（默认3，可指定如「前5名」）",
             "",
             "💡 你也可以说：",
             "   · `演示模式` —— 用演示数据先看效果（标注 ⚠️ 演示数据）",
@@ -237,10 +239,10 @@ class ChatSession:
         if not products:
             return f"⚠️ 演示数据中未找到「{keyword}」，建议换个关键词。"
         products, scores = self.recommender.recommend_from_products(
-            products, budget=req.price_max)
+            products, budget=req.price_max, topn=req.top_n or 3)
         self._last_request = req
         extra = req.summary() or None
-        resp = self.recommender.format_top3(products, scores, extra_require=extra)
+        resp = self.recommender.format_top(products, scores, extra_require=extra)
         # 醒目标注演示数据
         resp = resp + (
             "\n---\n> ## ⚠️ 以上为演示数据，并非真实商品\n"
@@ -270,7 +272,7 @@ class ChatSession:
         return unique[:5]
 
     def _flow_grab_and_compare(self, urls: List[str]) -> str:
-        """逐个抓取用户粘贴的商品链接，打分对比后输出 TOP3"""
+        """逐个抓取用户粘贴的商品链接，打分对比后输出 TOP-N（默认3，可指定如「前5名」）"""
         lines = [f"🔍 收到 {len(urls)} 个商品链接，正在用真实浏览器逐个抓取……"]
         lines.append("（请保持浏览器窗口可见，如遇验证码请手动完成并回复「继续抓取」）")
         lines.append("")
@@ -301,11 +303,13 @@ class ChatSession:
             return f"⚠️ 初筛后无商品符合条件（预算 ¥{budget}），请放宽预算或换链接。"
 
         # 打分排序
-        products, scores = self.recommender.recommend_from_products(products, budget)
+        last_topn = self._last_request.top_n if self._last_request else None
+        products, scores = self.recommender.recommend_from_products(
+            products, budget, topn=last_topn or 3)
         extra = None
         if self._last_request:
             extra = self._last_request.summary()
-        resp = self.recommender.format_top3(products, scores, extra_require=extra)
+        resp = self.recommender.format_top(products, scores, extra_require=extra)
 
         # 如果有部分被拦截，追加提示
         if block_reason:
@@ -352,6 +356,9 @@ class ChatSession:
         merged.platforms = delta.platforms or list(base.platforms)
         merged.purpose = delta.purpose or base.purpose
         merged.is_adjustment = False
+        # 条数：用户本次明示则用新值，否则沿用上次
+        merged.top_n = delta.top_n if delta.top_n is not None else base.top_n
+        merged.per_platform_n = delta.per_platform_n if delta.per_platform_n is not None else base.per_platform_n
         # 要求/排除取并集，重复去重
         merged.require_tags = list(dict.fromkeys(list(base.require_tags) + list(delta.require_tags)))
         merged.exclude_tags = list(dict.fromkeys(list(base.exclude_tags) + list(delta.exclude_tags)))
@@ -869,7 +876,7 @@ class ChatSession:
             "📋 **下一步操作**：",
             f"   1. 复制上方关键词，在浏览器打开 淘宝/京东/拼多多 搜索",
             "   2. 把你看中的 **1-5 个商品详情链接** 粘贴给我",
-            "   3. 我会逐个抓取详情页，打分对比后输出 TOP3",
+            "   3. 我会逐个抓取详情页，打分对比后输出 TOP-N（默认3，可指定如「前5名」）",
             "",
             "> ⚠️ **图片分析仅为视觉推测，完整参数请以商品网页为准**",
         ]
