@@ -214,9 +214,62 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .form-item .help { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
 
 /* ============== Tab 1: 聊天 ============== */
-.chat-wrap {
-  display: flex; flex-direction: column;
+.chat-layout {
+  display: flex; gap: 14px;
   height: calc(100vh - 130px);
+  position: relative;
+}
+.session-side {
+  width: 232px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.session-side-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  flex-shrink: 0;
+}
+.session-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.session-item {
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid transparent; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.session-item:hover { background: var(--bg); }
+.session-item.active {
+  background: var(--primary-soft);
+  border-color: rgba(24,144,255,.35);
+  color: var(--primary-dark);
+}
+.session-item .s-title {
+  font-size: 13px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-item .s-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-3); margin-top: 2px;
+}
+.session-item .s-meta .s-del {
+  margin-left: auto;
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; color: var(--text-3);
+  padding: 1px 5px; border-radius: 5px;
+}
+.session-item .s-meta .s-del:hover { color: var(--danger); background: #fff1f0; }
+.session-toggle-btn { display: none; }
+.chat-wrap {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  height: 100%;
 }
 .chat-messages {
   flex: 1; min-height: 0;
@@ -562,6 +615,13 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   .form-grid { grid-template-columns: 1fr; }
   .order-card { grid-template-columns: 1fr; }
   .chat-bubble { max-width: 92%; }
+  /* 窄屏：会话侧栏默认隐藏，可折叠为浮层 */
+  .session-side { display: none; }
+  .chat-layout.show-side .session-side {
+    display: flex; position: absolute; left: 0; top: 0; bottom: 0; z-index: 8;
+    box-shadow: var(--shadow-lg);
+  }
+  .session-toggle-btn { display: inline-flex; }
 }
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
@@ -628,7 +688,17 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 
     <!-- Tab1: 聊天 -->
     <section class="tab-panel active" id="tab-chat">
-      <div class="chat-wrap">
+      <div class="chat-layout" id="chat-layout">
+        <aside class="session-side" id="session-side">
+          <div class="session-side-head">
+            <span>会话列表</span>
+            <button class="btn sm" onclick="createSession()">＋ 新建会话</button>
+          </div>
+          <div class="session-list" id="session-list">
+            <div class="empty" style="padding:20px 8px;">会话加载中…</div>
+          </div>
+        </aside>
+        <div class="chat-wrap">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg ai">
             <div class="avatar">🛒</div>
@@ -637,6 +707,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
         </div>
 
         <div class="quick-chips" id="quick-chips">
+          <button class="chip session-toggle-btn" onclick="toggleSessionSide()">会话列表</button>
           <button class="chip" onclick="sendMsg('录入档案')">🎯 录入档案</button>
           <button class="chip" onclick="sendMsg('查看档案')">📋 查看档案</button>
           <button class="chip" onclick="sendMsg('买一条夏天的连衣裙，预算200以内')">👗 连衣裙 ≤200</button>
@@ -658,7 +729,8 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
           <button id="send-btn" class="send-btn" title="发送 (Enter)">➤</button>
         </div>
         <div class="img-preview-wrap" id="img-preview-wrap"></div>
-      </div>
+        </div><!-- /chat-wrap -->
+      </div><!-- /chat-layout -->
     </section>
 
     <!-- Tab2: 档案 -->
@@ -1039,10 +1111,10 @@ async function sendMsg(text) {
     let res;
     if (imgs.length) {
       // 带图片 → /api/image 端点
-      res = await api("/api/image", "POST", { images: imgs, text: msg });
+      res = await api("/api/image", "POST", { images: imgs, text: msg, session_id: CURRENT_SESSION_ID });
     } else {
       // 纯文字 → /api/chat 端点
-      res = await api("/api/chat", "POST", { message: msg });
+      res = await api("/api/chat", "POST", { message: msg, session_id: CURRENT_SESSION_ID });
     }
     removeTyping();
     if (res.ok) {
@@ -1050,6 +1122,12 @@ async function sendMsg(text) {
       updateBadges(res.snapshot);
       if (res.reply) tryExtractAndRenderRecommendations(res.reply);
       if (res.pending_order) toast("⚠️ 已进入下单确认流程，回复「确认」执行下单", "warn");
+      // 服务端可能回退到默认会话（原会话已被删）：同步本地
+      if (res.session_id && res.session_id !== CURRENT_SESSION_ID) {
+        CURRENT_SESSION_ID = res.session_id;
+        localStorage.setItem("sa_active_session", CURRENT_SESSION_ID);
+      }
+      loadSessions();   // 刷新会话列表顺序与自动标题
     } else {
       appendMsg("ai", renderMarkdown("❌ " + (res.error || "请求失败")));
     }
@@ -1078,6 +1156,144 @@ $("#chat-input").addEventListener("keydown", e => {
 });
 $("#send-btn").addEventListener("click", () => sendMsg());
 setTimeout(() => $("#chat-input").focus(), 400);
+
+/* =============== 多会话管理 =============== */
+let CURRENT_SESSION_ID = localStorage.getItem("sa_active_session") || "";
+let sessionListCache = [];
+
+function toggleSessionSide() {
+  const el = $("#chat-layout");
+  if (el) el.classList.toggle("show-side");
+}
+
+/* 相对时间："2026-09-12 10:00:00" → 刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期 */
+function relTime(iso) {
+  if (!iso) return "";
+  const d = new Date(String(iso).replace(" ", "T"));
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (isNaN(diff) || diff < 0) return String(iso);
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+  if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+  if (diff < 86400 * 7) return Math.floor(diff / 86400) + " 天前";
+  return String(iso).slice(0, 10);
+}
+
+async function loadSessions() {
+  try {
+    const r = await api("/api/sessions", "GET");
+    if (!r || !r.ok) return;
+    sessionListCache = r.sessions || [];
+    if (!CURRENT_SESSION_ID && r.active_id) {
+      CURRENT_SESSION_ID = r.active_id;
+      localStorage.setItem("sa_active_session", CURRENT_SESSION_ID);
+    }
+    renderSessions();
+  } catch (e) { console.error("loadSessions", e); }
+}
+
+function renderSessions() {
+  const box = $("#session-list");
+  if (!box) return;
+  if (!sessionListCache.length) {
+    box.innerHTML = '<div class="empty" style="padding:20px 8px;">暂无会话，点上方按钮新建</div>';
+    return;
+  }
+  box.innerHTML = sessionListCache.map(s => `
+    <div class="session-item ${s.id === CURRENT_SESSION_ID ? "active" : ""}" onclick="switchSession('${s.id}')">
+      <div class="s-title" title="${escapeHtml(s.title)}">${escapeHtml(s.title || "未命名会话")}</div>
+      <div class="s-meta">
+        <span>${escapeHtml(relTime(s.updated_at))}</span>
+        <span>${s.message_count || 0} 条</span>
+        <button class="s-del" title="删除会话" onclick="event.stopPropagation(); deleteSession('${s.id}')">删除</button>
+      </div>
+    </div>`).join("");
+}
+
+/* 清空聊天区并重建欢迎语（切换/新建会话时用） */
+function resetChatArea() {
+  const wrap = $("#chat-messages");
+  wrap.innerHTML = "";
+  appendMsg("ai", renderMarkdown(WELCOME_TEXT));
+}
+
+/* 加载某会话的历史消息并渲染（与实时消息同样的 appendMsg 渲染链路） */
+async function renderSessionMessages(id) {
+  if (!id) { resetChatArea(); return; }
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(id), "GET");
+    if (!r || !r.ok) { resetChatArea(); return; }
+    const wrap = $("#chat-messages");
+    wrap.innerHTML = "";
+    appendMsg("ai", renderMarkdown(WELCOME_TEXT));
+    (r.messages || []).forEach(m => {
+      appendMsg(m.role === "user" ? "user" : "ai", renderMarkdown(m.content || ""));
+    });
+  } catch (e) { console.error("renderSessionMessages", e); }
+}
+
+async function switchSession(id) {
+  if (!id || id === CURRENT_SESSION_ID) return;
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(id) + "/switch", "POST", {});
+    if (!r || !r.ok) { toast((r && r.error) || "切换会话失败", "err"); return; }
+    CURRENT_SESSION_ID = id;
+    localStorage.setItem("sa_active_session", id);
+    await renderSessionMessages(id);
+    loadSessions();   // 刷新高亮与排序
+    toast("已切换会话", "ok");
+  } catch (e) { toast("切换会话失败：" + e.message, "err"); }
+}
+
+async function createSession() {
+  try {
+    const r = await api("/api/sessions", "POST", {});
+    if (!r || !r.ok) { toast((r && r.error) || "新建会话失败", "err"); return; }
+    CURRENT_SESSION_ID = r.session.id;
+    localStorage.setItem("sa_active_session", CURRENT_SESSION_ID);
+    resetChatArea();
+    await loadSessions();
+    toast("已新建会话", "ok");
+  } catch (e) { toast("新建会话失败：" + e.message, "err"); }
+}
+
+async function deleteSession(id) {
+  if (!id) return;
+  if (!confirm("确认删除该会话？删除后聊天记录不可恢复。")) return;
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(id), "DELETE");
+    if (!r || !r.ok) { toast((r && r.error) || "删除失败", "err"); return; }
+    if (id === CURRENT_SESSION_ID) {
+      // 后端已自动切到最近会话或新建默认会话
+      CURRENT_SESSION_ID = r.active_id || "";
+      localStorage.setItem("sa_active_session", CURRENT_SESSION_ID);
+      await renderSessionMessages(CURRENT_SESSION_ID);
+    }
+    await loadSessions();
+    toast("会话已删除", "ok");
+  } catch (e) { toast("删除失败：" + e.message, "err"); }
+}
+
+/* 页面加载：恢复本窗口记住的会话（localStorage），并与服务端激活会话对齐 */
+async function initSessions() {
+  try {
+    const r = await api("/api/sessions", "GET");
+    if (!r || !r.ok) return;
+    sessionListCache = r.sessions || [];
+    const saved = localStorage.getItem("sa_active_session") || "";
+    let target = r.active_id || (sessionListCache[0] && sessionListCache[0].id) || "";
+    if (saved && saved !== target && sessionListCache.some(s => s.id === saved)) {
+      // 本窗口记住的会话仍存在：以它为准，同步服务端激活
+      const rr = await api("/api/sessions/" + encodeURIComponent(saved) + "/switch", "POST", {});
+      if (rr && rr.ok) target = saved;
+    }
+    if (!sessionListCache.some(s => s.id === target)) target = r.active_id || target;
+    CURRENT_SESSION_ID = target;
+    if (target) localStorage.setItem("sa_active_session", target);
+    renderSessions();
+    await renderSessionMessages(target);
+  } catch (e) { console.error("initSessions", e); }
+}
 
 /* =============== 徽标状态 =============== */
 function updateBadges(snap) {
@@ -1608,9 +1824,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     );
     return;
   }
-  // 2) 加载档案+订单（取最新快照）
+  // 2) 加载档案+订单（取最新快照）+ 恢复会话
   loadProfile();
   loadOrders();
+  initSessions();
   // 3) 初始快照空，徽标正常
   updateBadges({ profile: {}, orders: [] });
 });

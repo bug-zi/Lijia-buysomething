@@ -6,6 +6,7 @@ __pycache__/
 orders.json
 user_profile.json
 search_history.json
+chat_sessions.json
 temp/
 .browser_profile/
 .codegraph/

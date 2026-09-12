@@ -17,7 +17,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from profile_module import ProfileManager
 from product_searcher import ProductSearcher, Product
 from recommender import Recommender
-from order_manager import OrderManager, Order
+from order_manager import OrderManager, Order, LogisticsEvent
 from request_parser import RequestParser, ShoppingRequest
 from virtual_cart import VirtualCart
 
@@ -693,6 +693,105 @@ class ChatSession:
             "llm": ai_cfg,
             "vision_enabled": _VISION_AVAILABLE and (ai_cfg.get("enabled") if ai_cfg else False),
         }
+
+    # ---------- 会话状态序列化（多会话持久化，配合 session_store） ----------
+    def export_state(self) -> Dict[str, Any]:
+        """导出会话上下文（7 个会话态字段）；档案/订单/购物车已有各自 JSON 持久化，不在此列"""
+        return {
+            "collecting_profile": bool(self._collecting_profile),
+            "last_request": self._shopping_request_to_dict(self._last_request),
+            "pending_order": self._pending_order.to_dict() if self._pending_order is not None else None,
+            "pending_rank": self._pending_rank,
+            "cancelled": bool(self._cancelled),
+            "pending_urls": list(self._pending_urls or []),
+            "pending_search": bool(self._pending_search),
+        }
+
+    @staticmethod
+    def _shopping_request_to_dict(req: Optional[ShoppingRequest]) -> Optional[Dict[str, Any]]:
+        """ShoppingRequest 是纯 dataclass，直接 asdict；异常时降级为 None（不影响主流程）"""
+        if req is None:
+            return None
+        try:
+            from dataclasses import asdict
+            return asdict(req)
+        except Exception:
+            return None
+
+    def restore_state(self, state: Dict[str, Any]) -> None:
+        """从持久化字典恢复会话上下文；无法识别的字段静默忽略，异常时置空（兜底红线：功能不中断）"""
+        if not isinstance(state, dict) or not state:
+            return
+        try:
+            self._collecting_profile = bool(state.get("collecting_profile", False))
+            self._cancelled = bool(state.get("cancelled", False))
+            self._pending_search = bool(state.get("pending_search", False))
+            rank = state.get("pending_rank")
+            self._pending_rank = int(rank) if isinstance(rank, int) else None
+            self._pending_urls = [str(u) for u in (state.get("pending_urls") or []) if u]
+        except Exception:
+            # 手改文件导致个别字段不可恢复时整体放行，不让恢复动作中断服务
+            pass
+
+        # 上一次购物需求：按 dataclass 字段逐一重建，失败置 None
+        d = state.get("last_request")
+        self._last_request = None
+        if isinstance(d, dict):
+            try:
+                self._last_request = ShoppingRequest(
+                    raw=str(d.get("raw") or ""),
+                    keyword=str(d.get("keyword") or ""),
+                    category=d.get("category"),
+                    price_min=d.get("price_min"),
+                    price_max=d.get("price_max"),
+                    platforms=[str(p) for p in (d.get("platforms") or [])],
+                    require_tags=[str(t) for t in (d.get("require_tags") or [])],
+                    exclude_tags=[str(t) for t in (d.get("exclude_tags") or [])],
+                    purpose=str(d.get("purpose") or ""),
+                    is_adjustment=bool(d.get("is_adjustment", False)),
+                    target_rank=d.get("target_rank"),
+                    needs_clarify=[str(x) for x in (d.get("needs_clarify") or [])],
+                    top_n=d.get("top_n"),
+                    per_platform_n=d.get("per_platform_n"),
+                )
+            except Exception:
+                self._last_request = None
+
+        # 待确认订单草稿：按字段重建（events 逐条重建），失败丢弃该草稿
+        od = state.get("pending_order")
+        self._pending_order = None
+        if isinstance(od, dict) and od.get("order_id"):
+            try:
+                events = []
+                for e in (od.get("events") or []):
+                    if isinstance(e, dict):
+                        events.append(LogisticsEvent(
+                            time=str(e.get("time") or ""),
+                            status=str(e.get("status") or ""),
+                            detail=str(e.get("detail") or ""),
+                        ))
+                self._pending_order = Order(
+                    order_id=str(od.get("order_id") or ""),
+                    create_time=str(od.get("create_time") or ""),
+                    status=str(od.get("status") or "待支付"),
+                    product_id=str(od.get("product_id") or ""),
+                    product_name=str(od.get("product_name") or ""),
+                    platform=str(od.get("platform") or ""),
+                    seller=str(od.get("seller") or ""),
+                    price=float(od.get("price") or 0),
+                    final_price=float(od.get("final_price") or 0),
+                    receiver=str(od.get("receiver") or ""),
+                    phone=str(od.get("phone") or ""),
+                    address=str(od.get("address") or ""),
+                    remark=str(od.get("remark") or ""),
+                    track_no=str(od.get("track_no") or ""),
+                    carrier=str(od.get("carrier") or ""),
+                    events=events,
+                    pay_time=od.get("pay_time"),
+                    cancel_reason=str(od.get("cancel_reason") or ""),
+                )
+            except Exception:
+                self._pending_order = None
 
     # ============== 多模态图片处理 ==============
     def chat_with_images(self, images: List[str], text: str = "") -> str:
