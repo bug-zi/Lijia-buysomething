@@ -116,11 +116,11 @@ class ProfileManager:
         if key not in PROFILE_FIELDS:
             # 允许自定义扩展字段
             valid = list(PROFILE_FIELDS.keys())
-            return f"⚠️  未识别的字段 '{key}'，已作为自定义字段保存。\n标准字段：{', '.join(valid)}"
+            return f"未识别的字段 '{key}'，已作为自定义字段保存。\n标准字段：{', '.join(valid)}"
         self.profile[key] = value
         self._save()
         label = PROFILE_FIELDS.get(key, key)
-        return f"✅ 已更新【{label}】为：{value}"
+        return f"已更新【{label}】为：{value}"
 
     def update_batch(self, data: Dict[str, Any]) -> str:
         """批量更新字段"""
@@ -131,8 +131,8 @@ class ProfileManager:
                 updates.append(f"{PROFILE_FIELDS.get(k, k)}={v}")
         self._save()
         if updates:
-            return "✅ 已更新以下字段：\n" + "\n".join(f"  · {u}" for u in updates)
-        return "ℹ️  未提供有效字段值"
+            return "已更新以下字段：\n" + "\n".join(f"  · {u}" for u in updates)
+        return "未提供有效字段值"
 
     def delete_field(self, key: str) -> str:
         """删除/清空某一项"""
@@ -140,25 +140,25 @@ class ProfileManager:
             del self.profile[key]
             self._save()
             label = PROFILE_FIELDS.get(key, key)
-            return f"✅ 已清空【{label}】"
-        return f"ℹ️  字段 '{key}' 不存在或为空"
+            return f"已清空【{label}】"
+        return f"字段 '{key}' 不存在或为空"
 
     def clear_all(self) -> str:
         """清空全部档案"""
         self.profile.clear()
         self._save()
         self._collect_step_index = 0
-        return "🗑️  已清空全部档案"
+        return "已清空全部档案"
 
     # ---------- 查看 ----------
     def view_profile(self) -> str:
         """以清晰表格形式输出档案"""
         if self.is_empty():
-            return "📋 个人档案为空，使用「录入档案」或直接告诉我身高体重等信息开始建立档案。"
+            return "个人档案为空，使用「录入档案」或直接告诉我身高体重等信息开始建立档案。"
 
         lines = []
         lines.append("=" * 50)
-        lines.append("📋 我的购物偏好档案")
+        lines.append("我的购物偏好档案")
         lines.append("=" * 50)
         lines.append(f"{'字段':<20} | {'值'}")
         lines.append("-" * 50)
@@ -186,7 +186,7 @@ class ProfileManager:
     def continue_collect(self, user_answer: str) -> str:
         """接收用户回答，写入当前批次字段，返回下一批引导或完成提示"""
         if self._collect_step_index >= len(COLLECT_STEPS):
-            return "✅ 档案信息已收集完成！使用「查看档案」可浏览。随时可继续补充或修改。"
+            return "档案信息已收集完成！使用「查看档案」可浏览。随时可继续补充或修改。"
 
         current_keys = COLLECT_STEPS[self._collect_step_index]
         # 简单解析用户回答（支持 键:值 或 逗号分隔 或 纯值）
@@ -266,14 +266,14 @@ class ProfileManager:
     def _next_collect_prompt(self) -> str:
         """生成下一批引导语"""
         if self._collect_step_index >= len(COLLECT_STEPS):
-            return "✅ 档案信息已收集完成！使用「查看档案」可浏览。随时可继续补充或修改。"
+            return "档案信息已收集完成！使用「查看档案」可浏览。随时可继续补充或修改。"
 
         current_keys = COLLECT_STEPS[self._collect_step_index]
         labels = [PROFILE_FIELDS.get(k, k) for k in current_keys]
         step_num = self._collect_step_index + 1
         total = len(COLLECT_STEPS)
         prompt = (
-            f"📝 档案录入 (第 {step_num}/{total} 步)\n"
+            f"档案录入 (第 {step_num}/{total} 步)\n"
             f"请告诉我以下信息，多个值用逗号分隔（不想填写可回复「跳过」）：\n"
             f"  · {(' / ').join(labels)}"
         )
@@ -328,7 +328,7 @@ class ProfileManager:
                             updates[matched] = tokens[1]
             if updates:
                 return self.update_batch(updates)
-            return "ℹ️  未识别到修改内容。示例：「修改身高=175，体重=65」"
+            return "未识别到修改内容。示例：「修改身高=175，体重=65」"
 
         # 清空某一项: "清空身高" / "删除收货地址"
         if text.startswith("清空") or text.startswith("删除"):
@@ -342,7 +342,7 @@ class ProfileManager:
             matched = self._match_field(keyword)
             if matched:
                 return self.delete_field(matched)
-            return f"ℹ️  未找到字段 '{raw_keyword}'，使用「查看档案」确认字段名"
+            return f"未找到字段 '{raw_keyword}'，使用「查看档案」确认字段名"
 
         return None
 

@@ -10,7 +10,7 @@
     缺失回退原版 Playwright；仅限指纹层面，不绕过任何验证码/风控。
   - 登录墙/验证码：暂停自动化交还用户（用户自行扫码/手动登录，程序绝不过手账号密码），
     输出「请在弹出的浏览器里登录/完成验证，完成后回复“继续抓取”」，不绕过任何平台风控。
-  - 抓取失败必须如实告知，严禁编造商品信息。演示数据须用 ⚠️ 标记。
+  - 抓取失败必须如实告知，严禁编造商品信息。演示数据须用「演示数据」文字标记。
 """
 
 import os
@@ -305,7 +305,7 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
             # 加载失败多为风控静默拦截（页面永不加载完成），与验证码同样交还人工
             shot = _save_failure_screenshot(page, url)
             result["block_reason"] = (
-                f"🛑 {platform} 页面加载超时（{goto_err.__class__.__name__}），"
+                f"{platform} 页面加载超时（{goto_err.__class__.__name__}），"
                 "疑似被风控拦截。请在弹出的浏览器里手动打开该链接并完成验证/登录，"
                 "完成后回复「继续抓取」。"
                 + (f"（失败截图已保存：{shot}）" if shot else ""))
@@ -318,7 +318,7 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
         # 检测反爬
         blocked, reason = _detect_block(page, platform)
         if blocked:
-            result["block_reason"] = (f"🛑 {platform} {reason}。"
+            result["block_reason"] = (f"{platform} {reason}。"
                                      "请在弹出的浏览器里手动完成验证，完成后回复「继续抓取」。")
             result["need_human"] = True
             return result
@@ -817,7 +817,7 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
             if goto_err is not None:
                 shot = _save_failure_screenshot(page, url)
                 result["block_reason"] = (
-                    f"🛑 {platform} 搜索页加载超时，疑似被风控拦截。"
+                    f"{platform} 搜索页加载超时，疑似被风控拦截。"
                     "请在弹出的浏览器里手动完成验证/登录，完成后回复「继续抓取」。"
                     + (f"（失败截图已保存：{shot}）" if shot else ""))
                 result["need_human"] = True
@@ -839,17 +839,17 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
                     config_store.record_state(platform, "已登录", "抓取扫码")
                     continue
                 result["block_reason"] = (
-                    f"🛑 {platform} 登录未完成（超时或窗口被关闭）。"
+                    f"{platform} 登录未完成（超时或窗口被关闭）。"
                     "回复「继续抓取」可再次弹出登录窗口；登录成功后短期内无需重复扫码。")
                 result["need_human"] = True
                 return result
             if is_login:
                 config_store.record_state(platform, "未登录", "抓取时")
                 result["block_reason"] = (
-                    f"🛑 {platform} 搜索仍需登录（本次扫码未成功或已超时）。"
+                    f"{platform} 搜索仍需登录（本次扫码未成功或已超时）。"
                     "回复「继续抓取」可重试登录；登录一次后短期内无需重复扫码。")
             else:
-                result["block_reason"] = (f"🛑 {platform} {reason}。请在弹出的浏览器里手动完成验证，"
+                result["block_reason"] = (f"{platform} {reason}。请在弹出的浏览器里手动完成验证，"
                                           "完成后回复「继续抓取」。")
             result["need_human"] = True
             return result
@@ -920,10 +920,10 @@ if __name__ == "__main__":
     r = grab_product_detail(url)
     if r.get("product"):
         p = r["product"]
-        print(f"✅ {p.name} ¥{p.final_price} ({p.platform}) [{p.data_source}]")
+        print(f"{p.name} ¥{p.final_price} ({p.platform}) [{p.data_source}]")
         print(f"  店铺：{p.seller}  销量：{p.sales}  发货：{p.ship_days}天")
         print(f"  标签：{p.tags}")
         print(f"  好评点：{p.review.good_points[:2]}")
         print(f"  差评点：{p.review.bad_points[:2]}")
     else:
-        print(f"❌ 抓取失败：{r.get('block_reason', '未知')}")
+        print(f"抓取失败：{r.get('block_reason', '未知')}")

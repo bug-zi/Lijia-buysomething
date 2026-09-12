@@ -393,10 +393,10 @@ class Recommender:
         extra_require: Optional[str] = None,
     ) -> str:
         if not products:
-            return "⚠️  未找到符合条件的商品，建议调整价格区间或关键词。"
+            return "未找到符合条件的商品，建议调整价格区间或关键词。"
 
         lines = []
-        lines.append(f"📦 **为你选出TOP{len(products)}最优商品**（结合你的个人档案打分）")
+        lines.append(f"**为你选出TOP{len(products)}最优商品**（结合你的个人档案打分）")
         if extra_require:
             lines.append(f"   · 当前筛选条件：{extra_require}")
         lines.append("")
@@ -442,14 +442,14 @@ class Recommender:
 
         for idx, (p, s) in enumerate(zip(products, scores), 1):
             tag_str = "、".join(p.tags[:6])
-            src_badge = "📦 真实数据" if p.data_source == "真实" else "⚠️ 演示数据"
+            src_badge = "[真实数据]" if p.data_source == "真实" else "[演示数据]"
             lines.append(f"### 第{idx}名｜**{p.name}**  `{src_badge}`")
             if p.images:
                 lines.append(f"![商品图]({p.images[0]})")
             # 基础信息
             store_info = p.seller or "—"
             lines.append(f"- **基础信息**：{p.platform}  ·  店铺：{store_info}  ·  {p.category or '未分类'}")
-            # ✅优点 ≥3
+            # 优点 ≥3
             pros = list(p.review.good_points[:3]) if p.review.good_points else []
             if len(pros) < 3:
                 hl = self._core_highlights(p)
@@ -462,44 +462,44 @@ class Recommender:
                             break
             while len(pros) < 3:
                 pros.append("综合评价良好，无明显短板")
-            lines.append(f"- ✅ **优点**（≥3）：")
+            lines.append(f"- **优点**（≥3）：")
             for gp in pros[:3]:
                 lines.append(f"  - {gp}")
-            # ⚠️缺点 ≥2
+            # 缺点 ≥2
             cons = list(p.review.bad_points[:3]) if p.review.bad_points else []
             while len(cons) < 2:
                 cons.append("暂无明显差评")
-            lines.append(f"- ⚠️ **缺点**（≥2）：")
+            lines.append(f"- **缺点**（≥2）：")
             for bp in cons[:2]:
                 lines.append(f"  - {bp}")
             lines.append(f"  （好评率{p.review.positive_rate*100:.0f}%｜总评{p.review.review_count}｜带图追评{p.review.image_reviews}）")
-            # 📉价格分析
+            # 价格分析
             if p.price > 0 and p.final_price < p.price:
                 drop_pct = (p.price - p.final_price) / p.price * 100
-                price_line = (f"- 📉 **价格分析**：现价 **¥{p.final_price:.1f}**  ~~原价¥{p.price:.1f}~~"
+                price_line = (f"- **价格分析**：现价 **¥{p.final_price:.1f}**  ~~原价¥{p.price:.1f}~~"
                               f"  ({p.discount or '无活动'}，降幅{drop_pct:.0f}%)")
             else:
-                price_line = f"- 📉 **价格分析**：现价 **¥{p.final_price:.1f}**  ({p.discount or '无活动'})"
+                price_line = f"- **价格分析**：现价 **¥{p.final_price:.1f}**  ({p.discount or '无活动'})"
             price_line += "  · 历史最低价：暂不支持曲线（按设置仅当前价对比）"
             lines.append(price_line)
-            # 🛒适配说明
-            lines.append(f"- 🛒 **适配说明**：{self._match_reason(p, profile_snapshot)}")
+            # 适配说明
+            lines.append(f"- **适配说明**：{self._match_reason(p, profile_snapshot)}")
             # 风险提示
             lines.append(f"- **风险提示**：{self._risk_hints(p, s)}")
             # 0-100 评分
             lines.append(f"- **评分（0-100）**：匹配 **{s.profile_match:.0f}**  ·  性价比 **{s.value:.0f}**  ·  口碑 **{s.reputation:.0f}**  ·  风险 **{100-s.risk:.0f}**  ·  时效 **{s.ship:.0f}**  ·  总分 **{s.total:.0f}**")
-            # 💡购买建议
+            # 购买建议
             advice = "首选" if idx == 1 else ("备选" if idx <= 3 else "谨慎选择")
-            lines.append(f"- 💡 **购买建议**：{advice}。{'、'.join(p.after_sale) if p.after_sale else '无'}｜预计{p.ship_days}天内发货")
-            # 🔗商品链接
+            lines.append(f"- **购买建议**：{advice}。{'、'.join(p.after_sale) if p.after_sale else '无'}｜预计{p.ship_days}天内发货")
+            # 商品链接
             if p.source_url:
-                lines.append(f"- 🔗 **商品链接**：{p.source_url}")
+                lines.append(f"- **商品链接**：{p.source_url}")
             lines.append(f"- **属性标签**：{tag_str}  ·  商品ID：`{p.pid}`")
             lines.append("")
 
         # 横向对比
         lines.append("---")
-        lines.append("📊 **横向对比**")
+        lines.append("**横向对比**")
         header = f"| 排名 | 商品简称 | 平台 | 到手价 | 匹配分 | 性价比 | 口碑 | 风险 | 时效 | 总分 |"
         sep = "|---|---|---|---|---|---|---|---|---|---|"
         rows = [header, sep]
@@ -547,7 +547,7 @@ class Recommender:
                         polished = fut.result(timeout=10)
                         if polished:
                             lines.append("---")
-                            lines.append("### 🧠 AI 导购点评")
+                            lines.append("### AI 导购点评")
                             lines.append(polished.strip())
                             lines.append("")
                     except _cf.TimeoutError:
@@ -556,7 +556,7 @@ class Recommender:
             pass  # 静默回退
 
         lines.append(
-            "👉 **请告诉我：**\n"
+            "**请告诉我：**\n"
             "   · `把第1款加入购物车` / `对比第1款和第2款`\n"
             "   · `查历史价 [链接]` 查询某商品历史最低价\n"
             "   · 粘贴更多商品链接继续对比\n"
@@ -624,7 +624,7 @@ class Recommender:
                 if like_val and any(x.lower() in str(like_val).lower() for x in check):
                     if any(x.lower() in text.lower() for x in check):
                         label = field_cn.get(like_key or "", "")
-                        reasons.append(f"✅符合你{label}里的「{word}」")
+                        reasons.append(f"符合你{label}里的「{word}」")
                         break
             if dis_val:
                 for word, alts in lexicon.items():
@@ -632,7 +632,7 @@ class Recommender:
                     if any(x.lower() in str(dis_val).lower() for x in check):
                         if any(x.lower() in text.lower() for x in check):
                             label = field_cn.get(dislike_key or "", "避雷项")
-                            reasons.append(f"⚠️  可能踩雷：包含你{label}的「{word}」")
+                            reasons.append(f"可能踩雷：包含你{label}的「{word}」")
                             break
 
         find("color_like", "color_dislike", COLOR_KEYWORDS)
@@ -655,6 +655,24 @@ class Recommender:
                 if p.pid == index_or_pid or p.name == index_or_pid:
                     return p
         return None
+
+    def last_recommendation_brief(self) -> List[Dict[str, Any]]:
+        """上次推荐的紧凑摘要（自由问答的材料源；不含评价全文，控制 token）"""
+        brief: List[Dict[str, Any]] = []
+        for i, p in enumerate(self._last_products, 1):
+            s = self._last_scores.get(p.pid)
+            brief.append({
+                "rank": i,
+                "name": p.name,
+                "platform": p.platform,
+                "seller": p.seller,
+                "final_price": round(p.final_price, 1),
+                "total_score": int(s.total) if s else None,
+                "good": (list(p.review.good_points) or ["—"])[0],
+                "bad": (list(p.review.bad_points) or ["—"])[0],
+                "url": p.source_url or "",
+            })
+        return brief
 
 
 if __name__ == "__main__":

@@ -52,6 +52,9 @@
   /* 模式组合变量 */
   --primary-soft: var(--primary-soft-l);
   --user-bubble: linear-gradient(135deg, var(--ub-1) 0%, var(--ub-2) 100%);
+  /* 壁纸：resource/ 静态路由提供，按模式在下方切换 */
+  --app-bg: url("/resource/bg-light.png");
+  --bg-img-opacity: .5;
   --radius: 14px;
   --radius-sm: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Arial, sans-serif;
@@ -99,6 +102,8 @@
   --shadow:    0 6px 16px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
   --shadow-lg: 0 20px 40px rgba(0,0,0,.55), 0 4px 8px rgba(0,0,0,.45);
   --primary-soft: var(--primary-soft-d);
+  --app-bg: url("/resource/bg-dark.png");
+  --bg-img-opacity: .55;
   color-scheme: dark;
 }
 html, body { height: 100%; }
@@ -109,6 +114,24 @@ body {
   background: var(--bg);
   line-height: 1.6;
   overflow: hidden;
+}
+/* 壁纸层：模式对应壁纸蒙在 --bg 底色上、内容之下（负 z-index 位于 body 背景之上） */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  z-index: -1;
+  background: var(--app-bg) center / cover no-repeat;
+  opacity: var(--bg-img-opacity);
+  pointer-events: none;
+}
+/* 皮肤色调层：低饱和主题色渐变轻扫左上角，让同一张壁纸与四套皮肤都协调 */
+body::after {
+  content: "";
+  position: fixed; inset: 0;
+  z-index: -1;
+  background: linear-gradient(150deg, var(--primary-soft) 0%, transparent 46%);
+  opacity: .4;
+  pointer-events: none;
 }
 button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 input, textarea, select { font-family: inherit; font-size: 14px; }
@@ -185,11 +208,14 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .main {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column;
-  background: var(--bg);
+  background: transparent;  /* 透出壁纸 */
 }
 .topbar {
   height: 56px; flex-shrink: 0;
   background: var(--card);
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 22px;
@@ -241,6 +267,9 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 /* ============== 通用：卡片 ============== */
 .card {
   background: var(--card);
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
@@ -367,6 +396,9 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 14px 18px;
   overflow-y: auto;
   background: var(--chat-bg);
+  background: color-mix(in srgb, var(--chat-bg) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
@@ -440,7 +472,11 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   margin-top: 14px;
   display: flex; gap: 10px; align-items: flex-end;
   padding: 10px 10px 10px 14px;
-  background: var(--card); border: 1px solid var(--border);
+  background: var(--card);
+  background: color-mix(in srgb, var(--card) 85%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
   border-radius: 16px;
   box-shadow: var(--shadow);
 }
@@ -1242,7 +1278,15 @@ function mdLink(href, label) {
   return '<a class="md-link" href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + "</a>";
 }
 
+/* emoji 剥离（与后端 ai_client.strip_emoji 同一套范围）：Ext-Pictographic + 变体选择符/连接符，
+   连同紧随空格一起移除；→ 等文字箭头不属于 emoji，保留 */
+function stripEmojiChars(s) {
+  return String(s || "").replace(/[\p{Extended_Pictographic}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}\u{2139}]+[ \t]*/gu, "");
+}
+
 function appendMsg(role, htmlText) {
+  // AI 消息净化：剥离 emoji 图标（红线：AI 消息零 emoji；顺带兜底历史会话数据里的旧 emoji）
+  if (role === "ai") htmlText = stripEmojiChars(htmlText);
   const wrap = $("#chat-messages");
   const el = document.createElement("div");
   el.className = "chat-msg " + role;
@@ -2059,7 +2103,7 @@ function closeModal() {
 
 /* =============== Tab 4: TOP3 推荐卡片解析渲染 =============== */
 function tryExtractAndRenderRecommendations(text) {
-  if (!text || !text.includes("为你选出TOP3")) return;
+  if (!text || !/为你选出TOP\d+/.test(text)) return;
   // 用正则解析每个"### 第X名"段落
   const blocks = text.split(/###\s*第/).slice(1);
   const recs = [];
@@ -2071,22 +2115,34 @@ function tryExtractAndRenderRecommendations(text) {
     const dataSource = rankMatch[3] ? rankMatch[3].trim() : "演示数据";
     const platform = (b.match(/- \*\*基础信息\*\*：(.+?)\s*·/) || [,""])[1].trim();
     const seller   = (b.match(/店铺：(.+?)\s*·/) || [,""])[1].trim();
-    const finalPrice = (b.match(/- \*\*价格\*\*：现价\s*\*\*¥([0-9.]+)\*\*/) || [,0])[1];
+    const finalPrice = (b.match(/- \*\*价格(?:分析)?\*\*：现价\s*\*\*¥([0-9.]+)\*\*/) || [,0])[1];
     const origPrice  = (b.match(/~~原价¥([0-9.]+)~~/) || [,0])[1];
     const discount   = (b.match(/\((.+?)，?降幅\d+%?\)/) || b.match(/\((.+?)\)\s*·/) || [,""])[1].trim();
-    const goodsLines = [...b.matchAll(/^  ✅\s*(.+)$/gm)].map(m=>m[1].trim());
-    const badLines  = [...b.matchAll(/^  ⚠️\s*(.+)$/gm)].map(m=>m[1].trim());
+    // 优点/缺点：按小节标题收集其缩进列表项（服务端新格式为纯文字标记，无 emoji 前缀）
+    const goodsLines = [], badLines = [];
+    let _sec = "";
+    b.split("\n").forEach(line => {
+      const h = line.match(/^- \*\*(优点|缺点)\*\*/);
+      if (h) { _sec = h[1]; return; }
+      const it = line.match(/^[ \t]+-\s+(.+)$/);
+      if (it) {
+        if (_sec === "优点") goodsLines.push(it[1].trim());
+        else if (_sec === "缺点") badLines.push(it[1].trim());
+      }
+    });
     const goods = goodsLines.join("；");
     const bads  = badLines.join("；");
     const risk = (b.match(/- \*\*风险提示\*\*：(.+)$/m) || [,""])[1].trim();
-    const matchReason = (b.match(/- \*\*适配你的个人偏好说明\*\*：(.+)$/m) || [,""])[1].trim();
+    const matchReason = (b.match(/- \*\*适配(?:你的个人偏好)?说明\*\*：(.+)$/m) || [,""])[1].trim();
     const tags = (b.match(/- \*\*属性标签\*\*：(.+)$/m) || [,""])[1].trim();
-    const aftersale = (b.match(/- \*\*售后\/发货\*\*：(.+?)｜/) || [,""])[1].trim();
+    // 售后/发货：现行格式在「购买建议」行（建议。售后政策｜预计N天内发货）
+    const buyLine = (b.match(/- \*\*购买建议\*\*：(.+)$/m) || [,""])[1];
+    const aftersale = (buyLine.split("。")[1] || "").split("｜")[0].trim();
     const ship = (b.match(/预计(.+?)天内发货/) || [,""])[1];
     const pid  = (b.match(/商品ID.+?`([^`]+)`/) || [,""])[1];
-    // 0-10 评分（新卡片）优先；老格式回退到横向对比表
+    // 0-10 评分（旧卡片）优先；现行 0-100 行（匹配 **90** · 性价比 **85** … 加粗分隔）
     const s10 = b.match(/适配度\s*\*?\*?([\d.]+)\*?\*?\s*·\s*性价比\s*\*?\*?([\d.]+)\*?\*?\s*·\s*综合推荐\s*\*?\*?([\d.]+)\*?\*?/);
-    const s100 = b.match(/匹配\s*(\d+).+?性价\s*(\d+).+?口碑\s*(\d+).+?风险\s*(\d+).+?时效\s*(\d+).+?总分\s*\*?\*?(\d+)/);
+    const s100 = b.match(/匹配\s*\*{0,2}(\d+).+?性价比\s*\*{0,2}(\d+).+?口碑\s*\*{0,2}(\d+).+?风险\s*\*{0,2}(\d+).+?时效\s*\*{0,2}(\d+).+?总分\s*\*{0,2}(\d+)/);
     const s = s10
       ? { adapt10:+s10[1], value10:+s10[2], total10:+s10[3],
           match:0,value:0,rep:0,riskSafe:0,ship:0,total: Math.round(+s10[3]*10) }
@@ -2110,7 +2166,6 @@ function tryExtractAndRenderRecommendations(text) {
         <span style="color:var(--success);margin-left:6px;">${r.discount}</span>
       </div>
       <dl>
-        <dt>核心亮点</dt><dd>${escapeHtml(r.highlights)}</dd>
         <dt>真实评价提炼</dt>
         <dd class="good">${escapeHtml(r.goods || "无")}</dd>
         <dd class="bad">${escapeHtml(r.bads || "暂无明显差评")}</dd>

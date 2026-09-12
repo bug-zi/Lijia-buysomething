@@ -144,4 +144,4 @@ if __name__ == "__main__":
         assert bad not in raw, f"敏感字段泄漏：{bad}"
 
     os.remove(UC_FILE)
-    print("✅ user_center 自测通过（默认值/白名单/部分更新/uid 稳定/无敏感字段）")
+    print("user_center 自测通过（默认值/白名单/部分更新/uid 稳定/无敏感字段）")

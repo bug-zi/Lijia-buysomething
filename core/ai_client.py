@@ -55,6 +55,22 @@ def mask_key(k: str) -> str:
     return k[:4] + "****" + k[-4:]
 
 
+# ============== emoji 净化（红线：AI 消息任何地方不得出现 emoji 图标） ==============
+# 覆盖（unicode 转义书写，源码保持零 emoji 字符）：
+#   U+1F000-1FAFF 象形符号；U+2139 信息符；U+2600-27BF 杂项符号与丁巴特；U+2B00-2BFF 箭头星形；
+#   U+2300-23FF 计时符号；U+FE0E/U+FE0F 变体选择符；U+200D 零宽连接符；U+20E3 按键帽组合符
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\u2139\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0E\uFE0F\u200D\u20E3]+[ \t]*"
+)
+
+def strip_emoji(text: str) -> str:
+    """移除文本中的 emoji 图标（含紧随空格）。LLM 返回文本的统一出口过滤，
+    防止模型自发的 emoji 混进 AI 消息；规则引擎模板本身已不写 emoji。"""
+    if not text:
+        return text or ""
+    return _EMOJI_RE.sub("", text)
+
+
 def _safe_read_json(path: str) -> Dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -186,9 +202,9 @@ def probe_and_set_api_key(api_key: str, base_url: str = "", model: str = "",
         if ok:
             provider = _infer_provider(base_url)
             _write_and_apply(api_key, base_url, model, provider)
-            return {"ok": True, "message": f"✅ 已连接到 {provider}（model={model}）", "config": get_config()}
+            return {"ok": True, "message": f"已连接到 {provider}（model={model}）", "config": get_config()}
         return {"ok": False,
-                "message": f"❌ 指定的地址连通失败（HTTP {code}）：{_shorten(msg)}。请检查 base_url / model 是否匹配你的服务商。",
+                "message": f"指定的地址连通失败（HTTP {code}）：{_shorten(msg)}。请检查 base_url / model 是否匹配你的服务商。",
                 "config": get_config()}
 
     # 2) 否则按预设服务商顺序依次探测
@@ -199,12 +215,12 @@ def probe_and_set_api_key(api_key: str, base_url: str = "", model: str = "",
         if ok:
             _write_and_apply(api_key, p["base"], p["chat"], p["name"])
             return {"ok": True,
-                    "message": f"✅ 自动识别为 {p['name']}（base={p['base']}，默认模型={p['chat']}），已保存。",
+                    "message": f"自动识别为 {p['name']}（base={p['base']}，默认模型={p['chat']}），已保存。",
                     "config": get_config()}
     # 汇总失败原因（只保留非敏感信息）
     reasons = "; ".join([f"{a[0]}=HTTP{a[1]}" for a in attempts if a[1]])
     return {"ok": False,
-            "message": f"❌ 未能在主流服务商验证该 Key。各服务响应：{reasons or '无响应'}。如使用自建/其他服务商，请手动填写 base_url 与 model。",
+            "message": f"未能在主流服务商验证该 Key。各服务响应：{reasons or '无响应'}。如使用自建/其他服务商，请手动填写 base_url 与 model。",
             "config": get_config()}
 
 
@@ -235,7 +251,7 @@ def clear_api_key() -> Dict[str, Any]:
         # 防御：若 _load_from_sources 因为环境变量不存在也没json，确保是干净的
         if not _CFG.api_key and not os.getenv(ENV_API_KEY):
             _CFG.api_key = _CFG.base_url = _CFG.model = _CFG.provider = ""
-    return {"ok": True, "message": "✅ 本地 API Key 已删除。", "config": get_config()}
+    return {"ok": True, "message": "本地 API Key 已删除。", "config": get_config()}
 
 
 # ============== 底层 HTTP 调用 ==============
@@ -323,14 +339,14 @@ def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
                             # 疑似被截断，让上层用更大 max_tokens 重试
                             raise ValueError("finish_reason=length")
                         with _cfg_lock: _CFG.success += 1
-                        return (content or "").strip()
+                        return strip_emoji(content).strip()
                 except ValueError:
                     raise  # 上面 raise 的 finish=length 重抛
                 except Exception:
                     # 非 JSON 形态：直接返回原文（允许调用方自己解析）
                     pass
                 with _cfg_lock: _CFG.success += 1
-                return text.strip() if text else ""
+                return strip_emoji(text).strip() if text else ""
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", "ignore") if hasattr(e, "read") else ""
             err_msg = f"HTTP {e.code}: {_shorten(raw)}"
@@ -385,9 +401,11 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
-                                    prev: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                                    prev: Optional[Dict[str, Any]],
+                                    history: Optional[List[Dict[str, str]]] = None) -> Optional[Dict[str, Any]]:
     """
     让 LLM 做一次需求解析，输出 JSON（对齐 Request 对象字段）。
+    history：最近对话窗口（可空），用于理解指代与增量表达。
     失败返回 None，上层走原来的 RequestParser 规则兜底。
     """
     sys_prompt = """你是严格的JSON输出器，只输出一个JSON对象。
@@ -404,11 +422,24 @@ def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
   style: string|null       风格，如法式/美式休闲/甜酷/通勤
   is_adjustment: boolean   如果用户是"换"或"调"类请求，true；否则false
   target_rank: number|null  当用户说"买第X款"时填X，否则null
+  top_n: number|null       用户指定的最终输出条数（如"排名前5"填5；没提则null）
+  per_platform_n: number|null 用户指定的每平台候选条数（如"各筛前4名"填4；没提则null）
   intent: string           分类：demand=新需求/search=搜索/profile=档案相关/order=下单或确认/query_order=查订单/logistics=查物流/aftersale=售后/other=其他
-所有 string 必须为中文简洁表述；不要输出任何文字解释。输出必须是一个合法的JSON对象。"""
+结合[最近对话]理解指代与增量表达（如"再要2个""换成京东的""第二种呢"）；条数要求填入 top_n/per_platform_n。
+所有 string 必须为中文简洁表述；不要输出任何文字解释。严禁输出任何emoji表情。输出必须是一个合法的JSON对象。"""
+    hist_block = ""
+    if history:
+        lines = []
+        for m in history[-8:]:
+            role = "用户" if m.get("role") == "user" else "助手"
+            t = str(m.get("text") or "")[:100]
+            lines.append(f"{role}：{t}")
+        if lines:
+            hist_block = "[最近对话]\n" + "\n".join(lines) + "\n\n"
     user_prompt = (
         f"[已保存的用户个人档案]\n{json.dumps(profile, ensure_ascii=False)}\n\n"
         f"[上一轮的需求参考（若is_adjustment为true则增量叠加，否则忽略）]\n{json.dumps(prev or {}, ensure_ascii=False)}\n\n"
+        f"{hist_block}"
         f"[用户当前输入]\n{user_text}\n\n请输出JSON："
     )
     text = chat_completion([
@@ -417,6 +448,30 @@ def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
     ], temperature=0.1, max_tokens=700, json_mode=True, timeout=8)
     j = _extract_json(text) if text else None
     return j
+
+
+def answer_free_question_with_llm(question: str, materials: Dict[str, Any]) -> Optional[str]:
+    """自由问答：基于会话材料（上次推荐/最近对话/档案摘要）回答用户追问。
+    返回回答文本；需新搜索或与材料无关时返回 "NEED_SEARCH"；失败返回 None（上层回退规则流程）。"""
+    if not question or not question.strip() or not isinstance(materials, dict):
+        return None
+    sys_prompt = (
+        "你是购物助手的对话答疑模块。用户在当前会话中追问，你只能依据【材料】回答。\n"
+        "红线：\n"
+        "1) 材料里没有的事实（历史价格/库存/真伪/未出现过的商品）如实回答「材料中没有，无法判断」，"
+        "绝不编造商品、价格、评价；\n"
+        "2) 「买哪个好」类问题：基于评分材料给建议并说明理由，结尾提醒一句下单前核对尺码/价格；\n"
+        "3) 回答用简洁中文 Markdown，不超过300字。严禁使用任何emoji表情。\n"
+        "输出约定：若用户是在要求搜索/推荐新商品，或问题与本会话材料完全无关，只输出一行：NEED_SEARCH"
+    )
+    user_prompt = (
+        f"[材料]\n{json.dumps(materials, ensure_ascii=False, indent=2)}\n\n"
+        f"[用户问题]\n{question.strip()}\n\n请回答："
+    )
+    return chat_completion([
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_prompt},
+    ], temperature=0.4, max_tokens=500, timeout=10)
 
 
 def summarize_reviews_with_llm(product_name: str, good_raw: List[str],
@@ -428,7 +483,7 @@ def summarize_reviews_with_llm(product_name: str, good_raw: List[str],
   "good_summary": "用简洁中文，分2~4条不换行（用；分隔），总结买家一致的好评点。不要重复商品介绍，只保留真实使用反馈。尽量具体：如'腰部显瘦/洗后不起球'。",
   "bad_summary": "用简洁中文，分2~4条不换行，总结真实的吐槽和问题点；如果没有差评则写空字符串''。"
 }
-只输出一个合法JSON对象，不要解释。"""
+只输出一个合法JSON对象，不要解释。严禁使用任何emoji表情。"""
     good_str = "\n".join([f"- {g}" for g in good_raw[:20]]) or "(无好评数据)"
     bad_str  = "\n".join([f"- {g}" for g in bad_raw[:20]])  or "(无差评数据)"
     user_prompt = f"商品：{product_name}\n\n【好评】\n{good_str}\n\n【差评】\n{bad_str}\n\n请输出JSON："
@@ -454,7 +509,7 @@ _PERSONA_STYLES: Dict[str, str] = {
 def polish_recommendation_with_llm(items: List[Dict[str, Any]],
                                     profile: Dict[str, Any],
                                     persona: Optional[str] = None) -> Optional[str]:
-    """把推荐TOP3对象润色为一份更像人类导购的建议报告（纯文本 Markdown）；
+    """把推荐TOP-N对象润色为一份更像人类导购的建议报告（纯文本 Markdown）；
     persona 缺省时自动读用户中心偏好，仅影响语气侧重，不改变事实判断"""
     if not items: return None
     if persona is None:
@@ -464,20 +519,22 @@ def polish_recommendation_with_llm(items: List[Dict[str, Any]],
         except Exception:
             persona = "default"
     style = _PERSONA_STYLES.get(persona or "", "")
-    sys_prompt = """你是贴心但客观的购物顾问，语气简洁，不吹捧商品。
-输入为 TOP3 推荐对象列表和用户个人档案。
-请输出一段中文 Markdown 报告（不超过500字）：
+    n_items = len(items)
+    word_cap = min(1000, 500 + max(0, n_items - 5) * 100)  # ≤5款500字起，每多1款+100字，封顶1000
+    sys_prompt = f"""你是贴心但客观的购物顾问，语气简洁，不吹捧商品。
+输入为 TOP{n_items} 推荐对象列表和用户个人档案。
+请输出一段中文 Markdown 报告（不超过{word_cap}字）：
 1) 用1~2句话总结本次推荐总体风格（如何结合用户档案）；
 2) 针对每款，给出一句「为什么适合这个用户」的个性化点评，一定要点名用户档案里的身高/体重/风格/颜色偏好等具体点；
 3) 客观指出每款的「明显短板」；
 不要重复返回整张大表格（上层已经渲染过），重点在"人味"点评和档案适配理由。
 最后加一句「下单前请再次核对尺码/颜色；如需调整请回：换第X款/更修身/换颜色等」。
-不要输出任何JSON。"""
+不要输出任何JSON。严禁使用任何emoji表情图标。"""
     if style:
         sys_prompt += "\n" + style
     user_prompt = (
         f"[用户个人档案]\n{json.dumps(profile, ensure_ascii=False)}\n\n"
-        f"[TOP3 推荐列表]\n{json.dumps(items, ensure_ascii=False, indent=2)}\n"
+        f"[TOP{n_items} 推荐列表]\n{json.dumps(items, ensure_ascii=False, indent=2)}\n"
     )
     return chat_completion([
         {"role": "system", "content": sys_prompt},
@@ -555,7 +612,7 @@ def vision_completion(prompt: str, image_data_list: List[str], *,
                 content_text = (choices[0].get("message", {}) or {}).get("content", "")
                 with _cfg_lock:
                     _CFG.success += 1
-                return (content_text or "").strip()
+                return strip_emoji(content_text).strip()
             return None
     except Exception as e:
         err_msg = f"{type(e).__name__}: {_shorten(str(e))}"
@@ -581,7 +638,7 @@ def analyze_image_find_similar(image_data_uri: str) -> Optional[Dict[str, Any]]:
   "details": "设计细节（1-2句话描述亮点）",
   "blurry": false
 }
-如果图片模糊或无法识别，blurly 设为 true，其他字段留空。只返回 JSON，不要其他文字。"""
+如果图片模糊或无法识别，blurly 设为 true，其他字段留空。只返回 JSON，不要其他文字。严禁使用任何emoji。"""
     raw = vision_completion(sys_prompt, [image_data_uri], temperature=0.2, max_tokens=500)
     if not raw:
         return None
@@ -606,5 +663,5 @@ def analyze_images_compare(image_data_list: List[str],
 3. 最后加一句：**图片分析仅为视觉推测，完整参数请以商品网页为准**
 
 如果某张图片是截图且能看到价格/规格，可提取；但需标注【该信息仅来自图片，需要打开商品链接确认真实参数】。
-如果图片模糊，该行标注「图片细节不足」。"""
+如果图片模糊，该行标注「图片细节不足」。输出严禁使用任何emoji表情。"""
     return vision_completion(sys_prompt, image_data_list, temperature=0.4, max_tokens=1024)

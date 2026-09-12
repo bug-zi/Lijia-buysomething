@@ -33,13 +33,15 @@ except Exception:
     _get_llm_config = None
     _VISION_AVAILABLE = False
 
+HISTORY_MAX_MSGS = 8   # LLM 可见的对话窗口条数（4 轮）
+
 
 class ChatSession:
     """完整购物对话会话"""
 
     # 欢迎语
     GREETING = (
-        "🛒 你好，我是你的**全自动个人购物AI助手**。\n"
+        "你好，我是你的**全自动个人购物AI助手**。\n"
         "我可以帮你完成：建立偏好档案 → 跨平台选品 → 评价分析 → TOP3推荐 → 下单模拟 → 物流跟踪 全流程。\n\n"
         "你可以随时说：\n"
         "  · 「录入档案」建立/补充偏好；「查看档案」「修改身高=175」「清空档案」\n"
@@ -65,9 +67,21 @@ class ChatSession:
         self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
         self._pending_clarify: Optional[Dict[str, Any]] = None  # 澄清问答状态 {"text":原需求,"stage":1|2}
         self._last_chips: List[str] = []                      # 最近一次追问的选项按钮（仅供前端渲染）
+        self._history: List[Dict[str, str]] = []              # 最近对话窗口（随会话态持久化，LLM 材料源）
 
     # ---------- 对外主入口 ----------
     def chat(self, user_input: str) -> str:
+        """对外主入口：滑动窗口记录本轮对话（当前输入单独传给解析，不重复计入窗口）"""
+        text = (user_input or "").strip()
+        reply = self._chat_impl(user_input)
+        if text:
+            self._history.append({"role": "user", "text": text})
+            self._history.append({"role": "ai", "text": reply})
+            if len(self._history) > HISTORY_MAX_MSGS:
+                del self._history[:len(self._history) - HISTORY_MAX_MSGS]
+        return reply
+
+    def _chat_impl(self, user_input: str) -> str:
         text = user_input.strip()
         if not text:
             return self.GREETING
@@ -77,7 +91,7 @@ class ChatSession:
             # 建档过程中，用户可以说"完成"或跳出
             if text in ("完成", "结束建档", "退出建档", "停止录入"):
                 self._collecting_profile = False
-                return "✅ 档案录入已暂停，随时回复「继续建档」可补充未填项。\n" + self.profile.view_profile()
+                return "档案录入已暂停，随时回复「继续建档」可补充未填项。\n" + self.profile.view_profile()
             resp = self.profile.continue_collect(text)
             if "已收集完成" in resp:
                 self._collecting_profile = False
@@ -108,7 +122,7 @@ class ChatSession:
         if urls:
             return self._flow_grab_and_compare(urls)
 
-        # 2.7) 演示模式：用 Mock 数据展示效果（须用 ⚠️ 标记）
+        # 2.7) 演示模式：用 Mock 数据展示效果（须用「演示数据」文字标记）
         if text in ("演示模式", "演示", "用演示数据", "演示一下"):
             if self._last_request:
                 return self._flow_demo(self._last_request)
@@ -142,7 +156,8 @@ class ChatSession:
 
         # 4) 需求解析（规则 + 可选 AI 增强，失败自动回退）
         profile_dict = self.profile.get_all()
-        req = self.parser.parse(text, profile=profile_dict, previous=self._last_request)
+        req = self.parser.parse(text, profile=profile_dict, previous=self._last_request,
+                                history=self._history)
 
         # 4.1 指向第几款购买（强意图优先级最高，解析器已做短路处理，这里仅需判断target_rank非空且其他字段为空）
         if req.target_rank is not None and not (req.keyword or req.require_tags or req.exclude_tags or
@@ -155,11 +170,19 @@ class ChatSession:
             merged = self._merge_request(self._last_request, req)
             return self._flow_recommend(text, merged)
 
+        # 4.2.5 自由问答兜底：疑似上下文追问（疑问信号）或解析不出明确需求（泛词），
+        #       且会话有材料、LLM 可用 → 尝试基于材料答疑；None → 落回下方原流程
+        junk_kw = (not str(req.keyword or "").strip()) or \
+                  req.keyword.strip() in ("其他", "东西", "商品", "物品")
+        req_vague = junk_kw and not req.category and not req.require_tags and not req.purpose
+        if self._looks_like_question(text) or req_vague:
+            qa = self._try_free_qa(text)
+            if qa is not None:
+                return qa
+
         # 4.3 信息不全，主动追问（不盲目搜索）；品类/关键词全缺或只有泛词 → 澄清式多轮问答
         #     泛词判定独立于 needs_clarify（LLM 脑补出「其他/东西」等关键词时 needs_clarify 可能为空）
         clarify_hint = ""
-        junk_kw = (not str(req.keyword or "").strip()) or \
-                  req.keyword.strip() in ("其他", "东西", "商品", "物品")
         if not req.target_rank and not req.category and junk_kw \
                 and not req.require_tags and not req.purpose:
             return self._start_clarify(text)
@@ -168,12 +191,12 @@ class ChatSession:
             if len(req.needs_clarify) >= 2:
                 qs = "、".join(req.needs_clarify)
                 return (
-                    f"🤔 为了给你更精准的推荐，再确认一下：{qs}。\n"
+                    f"为了给你更精准的推荐，再确认一下：{qs}。\n"
                     "你可以一次答完，例如：「夏天通勤，雪纺，预算300以内」。\n"
                     "或直接回「随便/都行」我就按当前信息搜。"
                 )
             if len(req.needs_clarify) == 1 and "预算" in req.needs_clarify[0]:
-                clarify_hint = "\n💡 小提示：暂未识别到预算，我先给出推荐，不合适可以随时调整价格范围。"
+                clarify_hint = "\n小提示：暂未识别到预算，我先给出推荐，不合适可以随时调整价格范围。"
 
         # 4.4 推荐
         resp = self._flow_recommend(text, req)
@@ -187,11 +210,52 @@ class ChatSession:
     _CLARIFY_BUDGETS = ["100以内", "100-300", "300-800", "800-1500", "1500以上"]
     _CLARIFY_SKIP = ("随便", "随便推荐", "都行", "不限", "跳过", "先搜", "直接搜", "无所谓")
 
+    # 自由问答：疑问信号（短句+疑问标记）与档案材料白名单（姓名/电话/地址等隐私绝不入 prompt）
+    _QA_QUESTION_RE = re.compile(
+        r"[??]|为什么|哪个|哪些|怎么|怎么样|好不好|值不值|划算|值得吗|多少|有没有|能不能|可不可以|区别|差别|对比|理由|合适吗|好吗|行吗")
+    _PROFILE_QA_KEYS = ["height", "weight", "budget_max", "color_like", "color_dislike",
+                        "style_like", "style_dislike", "material_like", "material_dislike",
+                        "fit_like", "fit_dislike", "size_habit", "brands_like", "brands_dislike",
+                        "accept_no_name", "dislike_elements", "ship_region"]
+
+    def _looks_like_question(self, text: str) -> bool:
+        """短句 + 疑问信号 → 疑似基于上下文的追问（长句视为正常需求，避免误拦）"""
+        t = (text or "").strip()
+        return bool(t) and len(t) <= 40 and bool(self._QA_QUESTION_RE.search(t))
+
+    def _try_free_qa(self, question: str) -> Optional[str]:
+        """自由问答兜底：基于会话材料（上次推荐+历史窗口+档案摘要）LLM 答疑。
+        返回回答文本；材料缺失/LLM不可用/调用失败/NEED_SEARCH → None（上层落回原流程）。"""
+        try:
+            last_brief = self.recommender.last_recommendation_brief()
+        except Exception:
+            last_brief = []
+        if not last_brief and not self._history:
+            return None
+        try:
+            import ai_client
+            if not ai_client.get_config().get("enabled"):
+                return None
+            materials = {
+                "last_recommendation": last_brief,
+                "recent_chat": [{"role": m["role"], "text": m["text"][:100]} for m in self._history],
+                # 档案只取购物相关白名单字段
+                "profile": {k: self.profile.get(k) for k in self._PROFILE_QA_KEYS if self.profile.get(k)},
+            }
+            ans = ai_client.answer_free_question_with_llm(question, materials)
+        except Exception:
+            return None
+        if not ans or not ans.strip():
+            return None
+        if ans.strip().upper().startswith("NEED_SEARCH"):
+            return None
+        return ans.strip()
+
     def _start_clarify(self, text: str) -> str:
         self._pending_clarify = {"text": text, "stage": 1}
         self._last_chips = list(self._CLARIFY_CATEGORIES) + ["随便推荐"]
         return (
-            "🤔 我还没听清你想买什么。**选一个品类**（点下方按钮或直接输入）：\n"
+            "我还没听清你想买什么。**选一个品类**（点下方按钮或直接输入）：\n"
             "连衣裙 / 运动鞋 / 耳机 / T恤 / 手机，也可以输入其他品类；回「随便推荐」就按当前信息直接搜。"
         )
 
@@ -206,11 +270,11 @@ class ChatSession:
             if skipped:
                 self._pending_clarify = None
                 req = self.parser.parse(base_text, profile=self.profile.get_all(),
-                                        previous=self._last_request)
+                                        previous=self._last_request, history=self._history)
                 return self._flow_recommend(base_text, req)
             merged = f"{base_text} {answer.strip()}"
             req = self.parser.parse(merged, profile=self.profile.get_all(),
-                                    previous=self._last_request)
+                                    previous=self._last_request, history=self._history)
             kw_ok = bool(req.category) or (req.keyword and req.keyword.strip() not in ("其他", "东西", "商品", "物品"))
             if kw_ok:
                 if req.price_max is not None or req.price_min is not None:
@@ -225,7 +289,7 @@ class ChatSession:
             # 品类没认出来：不卡死，如实告知后按原需求直接搜
             self._pending_clarify = None
             req2 = self.parser.parse(base_text, profile=self.profile.get_all(),
-                                     previous=self._last_request)
+                                     previous=self._last_request, history=self._history)
             return f"没认出「{answer.strip()}」这个品类，我先按原需求「{base_text}」直接搜了。\n\n" + \
                 self._flow_recommend(base_text, req2)
 
@@ -260,8 +324,8 @@ class ChatSession:
         # 登录墙/验证码：暂停，等用户在弹出的浏览器里自行扫码/验证
         if need_human:
             self._pending_search = True
-            return (f"🔍 已按需求准备搜索「{keyword}」。\n\n"
-                    f"❌ {block_reason}\n\n"
+            return (f"已按需求准备搜索「{keyword}」。\n\n"
+                    f"{block_reason}\n\n"
                     "完成后回复「**继续抓取**」，我会继续为你搜索并推荐。")
 
         if products:
@@ -276,30 +340,30 @@ class ChatSession:
                 extra = req.summary() or None
                 resp = self.recommender.format_top(products, scores, extra_require=extra)
                 return resp + (
-                    "\n---\n> ℹ️ 以上来自浏览器实时搜索的**真实商品**（📦 价格/图片为搜索页所见，"
+                    "\n---\n> 以上来自浏览器实时搜索的**真实商品**（价格/图片为搜索页所见，"
                     "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
 
         # 搜索不足或失败 → 如实告知 + 回退「粘贴链接」老路径
         lines = [
-            f"🎯 **需求解析完成**，搜索关键词：`{keyword}`",
+            f"**需求解析完成**，搜索关键词：`{keyword}`",
             f"   · 筛选条件：{req.summary()}",
         ]
         if block_reason:
-            lines.append(f"\n⚠️ 自动搜索未成功：{block_reason}")
+            lines.append(f"\n自动搜索未成功：{block_reason}")
         lines += [
             "",
-            "📋 **下一步操作**：",
+            "**下一步操作**：",
             f"   1. 在浏览器打开 淘宝/京东/拼多多，搜索 `{keyword}`",
             "   2. 浏览搜索结果，把你看中的 **1-5 个商品详情链接** 复制粘贴给我",
             "   3. 我会逐个抓取详情页，提取价格/评价/规格，打分对比后输出 TOP-N（默认3，可指定如「前5名」）",
             "",
-            "💡 你也可以说：",
-            "   · `演示模式` —— 用演示数据先看效果（标注 ⚠️ 演示数据）",
+            "你也可以说：",
+            "   · `演示模式` —— 用演示数据先看效果（标注「演示数据」）",
             "   · 调整预算/条件，如 `预算升到300`",
         ]
         return "\n".join(lines)
 
-    # ---------- 演示模式（Mock 数据，须用 ⚠️ 标记） ----------
+    # ---------- 演示模式（Mock 数据，须用「演示数据」文字标记） ----------
     def _flow_demo(self, req: ShoppingRequest) -> str:
         keyword = req.keyword or req.category or "商品"
         products = self.searcher.mock_search(
@@ -310,7 +374,7 @@ class ChatSession:
             exclude_tags=req.exclude_tags,
         )
         if not products:
-            return f"⚠️ 演示数据中未找到「{keyword}」，建议换个关键词。"
+            return f"演示数据中未找到「{keyword}」，建议换个关键词。"
         products, scores = self.recommender.recommend_from_products(
             products, budget=req.price_max, topn=req.top_n or 3)
         self._last_request = req
@@ -318,7 +382,7 @@ class ChatSession:
         resp = self.recommender.format_top(products, scores, extra_require=extra)
         # 醒目标注演示数据
         resp = resp + (
-            "\n---\n> ## ⚠️ 以上为演示数据，并非真实商品\n"
+            "\n---\n> ## 以上为演示数据，并非真实商品\n"
             "> 演示数据仅用于展示功能效果，价格/评价均为模拟。\n"
             "> 如需真实商品分析，请把电商商品详情链接粘贴给我。"
         )
@@ -346,7 +410,7 @@ class ChatSession:
 
     def _flow_grab_and_compare(self, urls: List[str]) -> str:
         """逐个抓取用户粘贴的商品链接，打分对比后输出 TOP-N（默认3，可指定如「前5名」）"""
-        lines = [f"🔍 收到 {len(urls)} 个商品链接，正在用真实浏览器逐个抓取……"]
+        lines = [f"收到 {len(urls)} 个商品链接，正在用真实浏览器逐个抓取……"]
         lines.append("（请保持浏览器窗口可见，如遇验证码请手动完成并回复「继续抓取」）")
         lines.append("")
 
@@ -357,9 +421,9 @@ class ChatSession:
             self._pending_urls = list(urls)
         if not products:
             if block_reason:
-                return (f"❌ 抓取失败：{block_reason}\n\n"
+                return (f"抓取失败：{block_reason}\n\n"
                         "请检查链接是否正确，或在浏览器登录后重试。")
-            return "❌ 所有链接均抓取失败，未获取到有效商品数据。"
+            return "所有链接均抓取失败，未获取到有效商品数据。"
 
         # 初筛过滤
         budget = None
@@ -369,11 +433,11 @@ class ChatSession:
             before = len(products)
             products = [p for p in products if p.final_price <= budget]
             if before > len(products):
-                lines.append(f"📊 初筛：过滤了 {before - len(products)} 个超出预算的商品")
+                lines.append(f"初筛：过滤了 {before - len(products)} 个超出预算的商品")
                 lines.append("")
 
         if not products:
-            return f"⚠️ 初筛后无商品符合条件（预算 ¥{budget}），请放宽预算或换链接。"
+            return f"初筛后无商品符合条件（预算 ¥{budget}），请放宽预算或换链接。"
 
         # 打分排序
         last_topn = self._last_request.top_n if self._last_request else None
@@ -386,7 +450,7 @@ class ChatSession:
 
         # 如果有部分被拦截，追加提示
         if block_reason:
-            resp = resp + f"\n---\n⚠️ 部分链接抓取被拦截：{block_reason}"
+            resp = resp + f"\n---\n部分链接抓取被拦截：{block_reason}"
         return "\n".join(lines) + resp
 
     # ---------- 历史价格查询 ----------
@@ -396,9 +460,9 @@ class ChatSession:
             import web_scraper
             data = web_scraper.get_price_history(url)
         except Exception as e:
-            return f"❌ 历史价格查询失败：{e}"
+            return f"历史价格查询失败：{e}"
 
-        lines = ["📉 **历史价格查询结果**"]
+        lines = ["**历史价格查询结果**"]
         lines.append(f"- 商品链接：{url}")
         lines.append(f"- 当前价格：**¥{data.get('current_price', 0):.1f}**")
         lines.append(f"- 近3个月最低价：{data.get('history_low_3m') or '暂无数据'}")
@@ -410,13 +474,13 @@ class ChatSession:
         lines.append(f"- 数据来源：{data.get('source', '未知')}")
         level = data.get("level", "")
         if level == "好价":
-            lines.append("- 💡 建议：当前接近历史最低价，可考虑入手。")
+            lines.append("- 建议：当前接近历史最低价，可考虑入手。")
         elif level == "高价":
-            lines.append("- 💡 建议：当前价格偏高，建议等待降价或寻找替代品。")
+            lines.append("- 建议：当前价格偏高，建议等待降价或寻找替代品。")
         else:
-            lines.append("- 💡 建议：价格处于正常区间，按需购买即可。")
+            lines.append("- 建议：价格处于正常区间，按需购买即可。")
         lines.append("")
-        lines.append("👉 你可以：把这个链接加入购物车 `把当前商品加入购物车`，或继续粘贴更多链接对比。")
+        lines.append("你可以：把这个链接加入购物车 `把当前商品加入购物车`，或继续粘贴更多链接对比。")
         return "\n".join(lines)
 
     def _merge_request(self, base: ShoppingRequest, delta: ShoppingRequest) -> ShoppingRequest:
@@ -452,20 +516,20 @@ class ChatSession:
         product = self.recommender.get_last_product(rank)
         if product is None:
             return (
-                f"⚠️  没有找到第{rank}款商品，可能是还没做过推荐。\n"
+                f"没有找到第{rank}款商品，可能是还没做过推荐。\n"
                 "请先告诉我你的购物需求，例如「买连衣裙 预算200」。"
             )
         # 构建订单草稿
         try:
             draft = self.orders.build_order(product)
         except ValueError as e:
-            return f"⚠️  {e}"
+            return f"{e}"
 
         # 展示确认信息
         self._pending_order = draft
         self._pending_rank = rank
         lines = []
-        lines.append(f"🛒 **准备下单第{rank}款商品，请核对以下信息：**")
+        lines.append(f"**准备下单第{rank}款商品，请核对以下信息：**")
         lines.append(f"- 商品：**{product.name}**")
         lines.append(f"- 平台/店铺：{product.platform} · {product.seller}")
         lines.append(f"- 价格：原价¥{product.price:.1f}，活动到手 **¥{product.final_price:.1f}**（{product.discount or '无活动'}）")
@@ -473,11 +537,11 @@ class ChatSession:
         lines.append(f"- 地址：{draft.address}")
         lines.append("")
         lines.append(
-            f"⚠️  **支付风险提醒**：本系统**不会**代你支付任何费用；"
+            f"**支付风险提醒**：本系统**不会**代你支付任何费用；"
             f"确认后仅做下单流程模拟（返回订单号），真实支付请自行前往{product.platform}官方平台完成。"
         )
         lines.append("")
-        lines.append(f"👉 **是否确认购买第{rank}款商品？确认后将进入下单流程。**（回复「确认」执行，其他内容则取消）")
+        lines.append(f"**是否确认购买第{rank}款商品？确认后将进入下单流程。**（回复「确认」执行，其他内容则取消）")
         return "\n".join(lines)
 
     # ---------- 订单/物流/售后命令处理 ----------
@@ -495,7 +559,7 @@ class ChatSession:
             if not oid:
                 all_ids = sorted(self.orders.orders.keys(), reverse=True)
                 if not all_ids:
-                    return "⚠️  暂无订单，无法查询物流。请先下单后再查询。"
+                    return "暂无订单，无法查询物流。请先下单后再查询。"
                 oid = all_ids[0]
             return self.orders.query_logistics(oid)
 
@@ -507,7 +571,7 @@ class ChatSession:
             if not oid:
                 all_ids = sorted(self.orders.orders.keys(), reverse=True)
                 if not all_ids:
-                    return "⚠️  暂无订单，无法发起售后。"
+                    return "暂无订单，无法发起售后。"
                 oid = all_ids[0]
             return self.orders.apply_after_sale(oid, reason)
 
@@ -527,8 +591,8 @@ class ChatSession:
         if t in ("比价", "对比价格", "看优惠券", "有什么券", "售后政策"):
             last = self.recommender._last_products
             if not last:
-                return "ℹ️  请先做一次推荐，然后我会给你列出各款的优惠活动与售后政策。"
-            lines = [f"📊 **{t}对比**（当前TOP{len(last)}）"]
+                return "请先做一次推荐，然后我会给你列出各款的优惠活动与售后政策。"
+            lines = [f"**{t}对比**（当前TOP{len(last)}）"]
             for i, p in enumerate(last, 1):
                 lines.append(
                     f"- 第{i}名｜{p.name[:18]}…｜{p.platform}\n"
@@ -547,7 +611,7 @@ class ChatSession:
         if t in ("停止", "取消", "取消这次搜索", "取消搜索", "算了", "不要了", "停下"):
             self._cancelled = True
             self._last_request = None
-            return ("🛑 已取消当前搜索任务。\n"
+            return ("已取消当前搜索任务。\n"
                     "如需重新开始，告诉我新的购物需求即可（如「买一条连衣裙 预算200」）。")
 
         # 继续抓取：验证码/滑块手动完成后用户回复此指令，重试真实抓取
@@ -556,20 +620,20 @@ class ChatSession:
             if self._pending_urls:
                 urls = list(self._pending_urls)
                 self._pending_urls = []
-                return (f"🔁 正在用真实浏览器重新抓取 {len(urls)} 个被拦截的链接……\n"
+                return (f"正在用真实浏览器重新抓取 {len(urls)} 个被拦截的链接……\n"
                         "（请保持浏览器窗口可见，如再次出现验证码，请手动完成并回复「继续抓取」）\n\n"
                         + self._flow_grab_and_compare(urls))
             # 搜索流程被登录墙/验证码拦截 → 续跑搜索
             if self._pending_search and self._last_request is not None:
                 self._pending_search = False
-                return ("🔁 登录/验证已完成，正在继续搜索……\n"
+                return ("登录/验证已完成，正在继续搜索……\n"
                         "（请保持浏览器窗口可见，如再次遇到验证码请手动完成并回复「继续抓取」）\n\n"
                         + self._flow_recommend(t, self._last_request))
             if self._last_request is None:
-                return "⚠️ 当前没有挂起的搜索任务。请先提出购物需求（如「买一条连衣裙 预算200」）。"
+                return "当前没有挂起的搜索任务。请先提出购物需求（如「买一条连衣裙 预算200」）。"
             req = self._last_request
             kw = req.keyword or req.category or "商品"
-            return (f"🎯 当前没有待重试的商品链接。上次需求关键词：`{kw}`\n"
+            return (f"当前没有待重试的商品链接。上次需求关键词：`{kw}`\n"
                     "请把你在浏览器搜索到的 **1-5 个商品详情链接** 粘贴给我，我会逐个抓取对比。")
 
         # 安装浏览器驱动：patchright 优先（playwright 兜底），供真实搜索/抓取使用
@@ -587,7 +651,7 @@ class ChatSession:
             rank = int(m.group(1))
             p = self.recommender.get_last_product(rank)
             if p is None:
-                return f"⚠️  没有找到第{rank}款商品，请先做一次推荐。"
+                return f"没有找到第{rank}款商品，请先做一次推荐。"
             return self.cart.add(p.name, p.platform, p.source_url or "", p.final_price, pid=p.pid)
 
         # 展示购物车
@@ -603,7 +667,7 @@ class ChatSession:
         if m:
             idx = int(m.group(1))
             if not (1 <= idx <= len(self.cart.items)):
-                return f"⚠️  购物车没有第{idx}项"
+                return f"购物车没有第{idx}项"
             if self.cart.items[idx - 1].monitor:       # 已开启才关闭
                 self.cart.toggle_monitor(idx)
             return self.cart.list_text()
@@ -611,13 +675,13 @@ class ChatSession:
         if m:
             idx = int(m.group(1))
             if not (1 <= idx <= len(self.cart.items)):
-                return f"⚠️  购物车没有第{idx}项"
+                return f"购物车没有第{idx}项"
             if not self.cart.items[idx - 1].monitor:   # 未开启才开启
                 self.cart.toggle_monitor(idx)
             return self.cart.list_text()
         if t in ("监控购物车", "监控全部", "全部监控", "监控购物车里商品的价格"):
             self.cart.monitor_all(True)
-            return "🔔 已开启购物车全部商品的价格监控。\n" + self.cart.list_text()
+            return "已开启购物车全部商品的价格监控。\n" + self.cart.list_text()
 
         # 从购物车移除第N项（明确要求量词"项"或"个"，避免误匹配"删除第N款"）
         m = re.search(r"(?:从购物车移除|移除|删除)\s*第?\s*(\d+)\s*(?:项|个)", t)
@@ -642,7 +706,7 @@ class ChatSession:
             m = re.search(r"第?\s*(\d+)\s*(?:款|个|项)?", t)
             if m:
                 return self._price_compare(int(m.group(1)))
-            return ("📊 **历史价格查询**\n"
+            return ("**历史价格查询**\n"
                     "历史价格曲线暂不支持（按设置仅做当前价对比）。\n"
                     "可用指令：「查一下第1款的历史最低价」「对比一下第1个和第2个商品」。")
 
@@ -650,8 +714,8 @@ class ChatSession:
         if t in ("检查价格", "查价格变动", "价格监控", "查监控"):
             alerts = self.cart.check_prices()
             if not alerts:
-                return "✅ 已检查购物车监控商品，暂无降价提醒。\n（真实抓取若被拦截则跳过该项）"
-            return "🔔 **价格变动提醒**\n" + "\n".join(alerts)
+                return "已检查购物车监控商品，暂无降价提醒。\n（真实抓取若被拦截则跳过该项）"
+            return "**价格变动提醒**\n" + "\n".join(alerts)
 
         return None
 
@@ -660,8 +724,8 @@ class ChatSession:
         pa = self.recommender.get_last_product(rank_a)
         pb = self.recommender.get_last_product(rank_b)
         if not pa or not pb:
-            return f"⚠️  没有找到第{rank_a}或第{rank_b}款商品，请先做一次推荐。"
-        lines = [f"📊 **第{rank_a}款 vs 第{rank_b}款 对比**（当前价对比，历史曲线暂不支持）"]
+            return f"没有找到第{rank_a}或第{rank_b}款商品，请先做一次推荐。"
+        lines = [f"**第{rank_a}款 vs 第{rank_b}款 对比**（当前价对比，历史曲线暂不支持）"]
         lines.append("| 项目 | {} | {} |".format(f"第{rank_a}款", f"第{rank_b}款"))
         lines.append("|---|---|---|")
         lines.append(f"| 名称 | {pa.name} | {pb.name} |")
@@ -674,7 +738,7 @@ class ChatSession:
         lines.append(f"| 数据来源 | {pa.data_source} | {pb.data_source} |")
         lines.append("")
         cheaper = pa if pa.final_price <= pb.final_price else pb
-        lines.append(f"💡 当前价更低：第{rank_a if cheaper is pa else rank_b}款（¥{cheaper.final_price:.1f}）")
+        lines.append(f"当前价更低：第{rank_a if cheaper is pa else rank_b}款（¥{cheaper.final_price:.1f}）")
         lines.append("如需加入虚拟购物车监控价格，回「把第N款加入购物车」。")
         return "\n".join(lines)
 
@@ -682,8 +746,8 @@ class ChatSession:
         """查某款商品的当前价对比（替代历史最低价查询）"""
         p = self.recommender.get_last_product(rank)
         if p is None:
-            return f"⚠️  没有找到第{rank}款商品，请先做一次推荐。"
-        lines = [f"📊 **第{rank}款价格查询**：{p.name}"]
+            return f"没有找到第{rank}款商品，请先做一次推荐。"
+        lines = [f"**第{rank}款价格查询**：{p.name}"]
         lines.append(f"- 平台：{p.platform}  ·  店铺：{p.seller}")
         lines.append(f"- 当前价：**¥{p.final_price:.1f}**  ~~原价¥{p.price:.1f}~~  ({p.discount or '无活动'})")
         lines.append(f"- 数据来源：{p.data_source}")
@@ -719,7 +783,7 @@ class ChatSession:
                 break
             errors.append(f"{label} 失败（退出码 {r.returncode}）")
         if not installed:
-            return ("⚠️ 驱动包安装失败（已尝试默认源与清华镜像）。\n"
+            return ("驱动包安装失败（已尝试默认源与清华镜像）。\n"
                     + "\n".join(f"· {e}" for e in errors[-2:])
                     + "\n请手动运行：`pip install patchright`")
 
@@ -735,11 +799,11 @@ class ChatSession:
             r = subprocess.run([sys.executable, "-m", installed, "install", "chromium"],
                                capture_output=True, text=True, timeout=600)
             if r.returncode != 0:
-                return (f"⚠️ 驱动包 {installed} 已装好，但 Chromium 下载失败。\n"
+                return (f"驱动包 {installed} 已装好，但 Chromium 下载失败。\n"
                         f"请手动运行：`python -m {installed} install chromium`，"
                         "或本机安装 Chrome/Edge 后无需下载。")
         except subprocess.TimeoutExpired:
-            return (f"⚠️ Chromium 下载超时（10 分钟）。驱动包 {installed} 已装好，"
+            return (f"Chromium 下载超时（10 分钟）。驱动包 {installed} 已装好，"
                     f"可稍后手动运行 `python -m {installed} install chromium`。")
         return self._verify_browser_driver(installed, "已下载 Chromium 内核。")
 
@@ -747,12 +811,12 @@ class ChatSession:
         try:
             import web_scraper
             if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
-                return (f"✅ 浏览器驱动就绪（{pkg}）。{note}\n"
+                return (f"浏览器驱动就绪（{pkg}）。{note}\n"
                         "现在直接输入购物需求即可真实搜索；遇登录墙会弹出浏览器让你扫码"
                         "（登录一次后短期免登），遇验证码我会暂停交还人工，回复「继续抓取」续跑。")
         except Exception:
             pass
-        return f"✅ 安装命令已执行（{pkg}），请重启服务后生效。"
+        return f"安装命令已执行（{pkg}），请重启服务后生效。"
 
     # ---------- 会话状态导出（用于调试/可视化） ----------
     def snapshot(self) -> Dict[str, Any]:
@@ -776,7 +840,7 @@ class ChatSession:
 
     # ---------- 会话状态序列化（多会话持久化，配合 session_store） ----------
     def export_state(self) -> Dict[str, Any]:
-        """导出会话上下文（7 个会话态字段）；档案/订单/购物车已有各自 JSON 持久化，不在此列"""
+        """导出会话上下文（会话态字段）；档案/订单/购物车已有各自 JSON 持久化，不在此列"""
         return {
             "collecting_profile": bool(self._collecting_profile),
             "last_request": self._shopping_request_to_dict(self._last_request),
@@ -786,6 +850,7 @@ class ChatSession:
             "pending_urls": list(self._pending_urls or []),
             "pending_search": bool(self._pending_search),
             "pending_clarify": dict(self._pending_clarify) if self._pending_clarify else None,
+            "history": [dict(m) for m in (self._history or [])],
         }
 
     @staticmethod
@@ -812,6 +877,13 @@ class ChatSession:
             self._pending_urls = [str(u) for u in (state.get("pending_urls") or []) if u]
             pc = state.get("pending_clarify")
             self._pending_clarify = dict(pc) if isinstance(pc, dict) and pc.get("text") else None
+            h = state.get("history")
+            self._history = []
+            if isinstance(h, list):
+                for m in h:
+                    if isinstance(m, dict) and m.get("role") in ("user", "ai") and m.get("text"):
+                        # 无损恢复（export/restore 严格一致）；进 prompt 时另有 100 字截断
+                        self._history.append({"role": str(m["role"]), "text": str(m["text"])})
         except Exception:
             # 手改文件导致个别字段不可恢复时整体放行，不让恢复动作中断服务
             pass
@@ -885,17 +957,17 @@ class ChatSession:
         根据图片数量和指令自动分发到场景A（单图找同款）或场景B（多图对比）。
         """
         if not images:
-            return "⚠️ 未检测到图片内容。"
+            return "未检测到图片内容。"
 
         # 检查 LLM 视觉能力
         if not _VISION_AVAILABLE:
-            return ("⚠️ 视觉分析需要配置 LLM API Key。\n"
+            return ("视觉分析需要配置 LLM API Key。\n"
                     "请在「AI设置」页配置支持视觉的模型（如 GLM-4V / GPT-4o / Qwen-VL）。\n"
                     "或直接把商品详情链接发给我，我可以用浏览器抓取真实数据。")
 
         llm_cfg = _get_llm_config() if _get_llm_config else {}
         if not llm_cfg.get("enabled"):
-            return ("⚠️ 当前 LLM 未启用，无法做图片视觉分析。\n"
+            return ("当前 LLM 未启用，无法做图片视觉分析。\n"
                     "请在「AI设置」页配置 API Key 后重试，或直接发商品链接给我抓取。")
 
         # 指令识别
@@ -915,17 +987,17 @@ class ChatSession:
     # ---------- 场景A：单图找同款 ----------
     def _flow_image_find_similar(self, image_data_uri: str) -> str:
         """单张图片：提取特征 → 输出搜索关键词 → 提示用户手动搜索"""
-        lines = ["🖼️ **图片分析中**（场景A：找同款）……"]
+        lines = ["**图片分析中**（场景A：找同款）……"]
         result = analyze_image_find_similar(image_data_uri) if analyze_image_find_similar else None
 
         if not result:
-            return ("⚠️ 图片视觉分析失败或未返回有效结果。\n"
+            return ("图片视觉分析失败或未返回有效结果。\n"
                     "可能原因：模型不支持视觉 / 图片过大 / 网络异常。\n"
                     "你可以直接描述商品特征（如「白色雪纺连衣裙 收腰 法式」），或发商品链接给我抓取。")
 
         # 图片模糊提示
         if result.get("blurry"):
-            return ("⚠️ 图片细节不足，请上传更清晰的商品图。\n"
+            return ("图片细节不足，请上传更清晰的商品图。\n"
                     "或直接把商品链接发给我，我可以用浏览器抓取真实数据。")
 
         keyword = result.get("keyword", "").strip()
@@ -936,25 +1008,25 @@ class ChatSession:
         details = result.get("details", "")
 
         if not keyword:
-            return "⚠️ 未能从图片中提取有效搜索关键词，请换一张更清晰的商品图。"
+            return "未能从图片中提取有效搜索关键词，请换一张更清晰的商品图。"
 
         lines = [
-            "🖼️ **图片分析完成**（场景A：找同款）",
+            "**图片分析完成**（场景A：找同款）",
             "",
-            f"- 🏷️ **品类**：{category or '未识别'}",
-            f"- 🎨 **主色**：{color or '未识别'}",
-            f"- 👗 **风格**：{style or '未识别'}",
-            f"- 🧵 **材质推测**：{material or '未识别'}",
-            f"- ✨ **设计细节**：{details or '—'}",
+            f"- **品类**：{category or '未识别'}",
+            f"- **主色**：{color or '未识别'}",
+            f"- **风格**：{style or '未识别'}",
+            f"- **材质推测**：{material or '未识别'}",
+            f"- **设计细节**：{details or '—'}",
             "",
-            f"🎯 **精准搜索关键词**：`{keyword}`",
+            f"**精准搜索关键词**：`{keyword}`",
             "",
-            "📋 **下一步操作**：",
+            "**下一步操作**：",
             f"   1. 复制上方关键词，在浏览器打开 淘宝/京东/拼多多 搜索",
             "   2. 把你看中的 **1-5 个商品详情链接** 粘贴给我",
             "   3. 我会逐个抓取详情页，打分对比后输出 TOP-N（默认3，可指定如「前5名」）",
             "",
-            "> ⚠️ **图片分析仅为视觉推测，完整参数请以商品网页为准**",
+            "> **图片分析仅为视觉推测，完整参数请以商品网页为准**",
         ]
 
         # 记录为上次请求（便于后续衔接）
@@ -974,24 +1046,24 @@ class ChatSession:
     def _flow_image_compare(self, image_data_list: List[str]) -> str:
         """多张图片：横向对比分析 → 输出对比表格 + 选购建议"""
         n = len(image_data_list)
-        lines = [f"🖼️ **图片对比分析中**（场景B：{n} 张图片对比）……"]
+        lines = [f"**图片对比分析中**（场景B：{n} 张图片对比）……"]
 
         profile_snapshot = self.profile.get_all()
         md = analyze_images_compare(image_data_list, profile_snapshot) if analyze_images_compare else None
 
         if not md:
-            return ("⚠️ 多图对比分析失败或未返回有效结果。\n"
+            return ("多图对比分析失败或未返回有效结果。\n"
                     "可能原因：模型不支持视觉 / 图片过多 / 网络异常。\n"
                     "你可以分别发商品链接给我，我用浏览器抓取真实数据后做对比。")
 
         # 补充：图片分析后的衔接提示
         md = md.strip()
         if not md.endswith("为准"):
-            md += "\n\n> ⚠️ **图片分析仅为视觉推测，完整参数请以商品网页为准**"
+            md += "\n\n> **图片分析仅为视觉推测，完整参数请以商品网页为准**"
 
         result = md + (
             "\n\n---\n"
-            "💡 **想要真实价格/评价/历史价？**\n"
+            "**想要真实价格/评价/历史价？**\n"
             "   把这几款商品的详情链接发给我，我会用浏览器抓取真实数据，重新打分对比。"
         )
         return result
@@ -1006,26 +1078,26 @@ def run_cli():
     print("=" * 60 + "\n")
     # 打印档案状态
     if not session.profile.is_empty():
-        print("📋 已检测到你有之前保存的档案：")
+        print("已检测到你有之前保存的档案：")
         print(session.profile.view_profile())
         print()
 
     while True:
         try:
-            user = input("🧑 你：").strip()
+            user = input("你：").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n👋 再见，随时欢迎回来购物～")
+            print("\n再见，随时欢迎回来购物～")
             break
         if not user:
             continue
         if user.lower() in ("quit", "exit", "退出", "再见", "拜拜"):
-            print("👋 再见，随时欢迎回来购物～")
+            print("再见，随时欢迎回来购物～")
             break
         if user.lower() in ("help", "帮助", "菜单"):
             print(ChatSession.GREETING)
             continue
         reply = session.chat(user)
-        print("\n🤖 AI助手：")
+        print("\nAI助手：")
         print(_indent(reply))
         print()
 
@@ -1060,7 +1132,7 @@ if __name__ == "__main__":
         ]
         for i, q in enumerate(demo_cases, 1):
             print(f"\n{'='*50}")
-            print(f"🎬 Demo [{i}/{len(demo_cases)}] 用户：{q}")
+            print(f"Demo [{i}/{len(demo_cases)}] 用户：{q}")
             print(f"{'='*50}")
             r = s.chat(q)
             print(r)

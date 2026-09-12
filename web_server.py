@@ -52,6 +52,7 @@ import user_center  # noqa: E402  用户中心：账户信息与偏好
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
+RESOURCE_DIR = os.path.join(BASE_DIR, "resource")
 
 # ---------- 多会话注册表 ----------
 # 每个会话一个 ChatSession 实例（7 个会话态字段互相独立，随聊天持久化到 chat_sessions.json）；
@@ -200,6 +201,10 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/logistics/"):
             oid = unquote(path[len("/api/logistics/"):])
             self._api_logistics_get(oid)
+            return
+        # 静态资源：resource/ 目录下的图片（壁纸等；basename 防目录穿越，后缀白名单）
+        if path.startswith("/resource/"):
+            self._serve_resource(unquote(path[len("/resource/"):]))
             return
         # 静态兜底：index.html
         if path == "/index.html":
@@ -437,13 +442,13 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                         if "已收集完成" in resp:
                             cs._collecting_profile = False
                     else:
-                        resp = f"⚠️  未识别为档案指令：{payload}"
+                        resp = f"未识别为档案指令：{payload}"
                 else:
                     if "档案录入 (" in cmd_resp and "第 " in cmd_resp:
                         cs._collecting_profile = True
                     resp = cmd_resp
             else:
-                resp = "⚠️  无效请求"
+                resp = "无效请求"
             data = cs.profile.get_all()
             view = cs.profile.view_profile()
         json_response(self, 200, {
@@ -535,9 +540,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                     # 复用本地 key 做一次 hello 测试：用 mask_key 信息+当前成功率返回
                     cfg = ai_client.get_config()
                     if cfg.get("enabled"):
-                        r = {"ok": True, "message": f"✅ 已配置 {cfg.get('provider') or cfg.get('base_url')}，模型 {cfg.get('model')}", "config": cfg}
+                        r = {"ok": True, "message": f"已配置 {cfg.get('provider') or cfg.get('base_url')}，模型 {cfg.get('model')}", "config": cfg}
                     else:
-                        r = {"ok": False, "message": "⚠️ 当前未配置API Key，请先填写并保存。", "config": cfg}
+                        r = {"ok": False, "message": "当前未配置API Key，请先填写并保存。", "config": cfg}
             elif action == "clear":
                 r = ai_client.clear_api_key()
             else:
@@ -652,7 +657,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         json_response(self, 200, {
             "ok": True, "keyword": keyword, "count": len(clean),
-            "message": f"✅ 已缓存 {len(clean)} 条真实商品（关键词：{keyword}，30 分钟有效）",
+            "message": f"已缓存 {len(clean)} 条真实商品（关键词：{keyword}，30 分钟有效）",
         })
 
     # ---------- 多模态图片分析 ----------
@@ -693,6 +698,32 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         json_response(self, 200, {"ok": True, "session_id": sid, "reply": reply, "snapshot": snap})
 
     # ---------- 静态资源 ----------
+    _RESOURCE_TYPES = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
+        ".ico": "image/x-icon",
+    }
+
+    def _serve_resource(self, name: str):
+        fname = os.path.basename((name or "").strip())  # 只取文件名，防目录穿越
+        ext = os.path.splitext(fname)[1].lower()
+        fp = os.path.join(RESOURCE_DIR, fname)
+        if ext not in self._RESOURCE_TYPES or not os.path.isfile(fp):
+            json_response(self, 404, {"ok": False, "error": "Not Found", "path": fname})
+            return
+        try:
+            with open(fp, "rb") as f:
+                data = f.read()
+        except OSError:
+            json_response(self, 500, {"ok": False, "error": "读取资源失败", "path": fname})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", self._RESOURCE_TYPES[ext])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _serve_index(self):
         if not os.path.exists(INDEX_FILE):
             html_response(self, 404, "<h1>404 缺少 index.html</h1>".encode("utf-8"))
@@ -711,7 +742,7 @@ def run(port: int = DEFAULT_PORT, open_browser: bool = True):
     httpd = ThreadingHTTPServer(addr, ShoppingHandler)
     url = f"http://127.0.0.1:{port}/"
     print("=" * 60)
-    print("  🛒 全自动个人购物AI助手 — 网页版")
+    print("  全自动个人购物AI助手 — 网页版")
     print(f"  本地访问地址：{url}")
     print("  关闭本窗口即可停止服务。")
     print("=" * 60)
@@ -728,7 +759,7 @@ def run(port: int = DEFAULT_PORT, open_browser: bool = True):
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n👋 服务已停止。")
+        print("\n服务已停止。")
         httpd.server_close()
 
 
@@ -738,7 +769,7 @@ try:
     with SESSION_LOCK:
         _ensure_default_session()
 except Exception as _e:
-    print(f"⚠️ 会话存储初始化失败（不影响服务启动）：{_e}")
+    print(f"会话存储初始化失败（不影响服务启动）：{_e}")
 
 
 if __name__ == "__main__":

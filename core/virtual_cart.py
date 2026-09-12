@@ -82,7 +82,7 @@ class VirtualCart:
                 if history_low:
                     it.history_low = history_low
                 self._save()
-                return f"✅ 已更新「{name}」({platform}) 的价格为 ¥{price:.1f}"
+                return f"已更新「{name}」({platform}) 的价格为 ¥{price:.1f}"
         self.items.append(CartItem(
             id=str(uuid.uuid4())[:8],
             name=name, platform=platform, url=url, current_price=price,
@@ -90,28 +90,28 @@ class VirtualCart:
             history_low=history_low,
         ))
         self._save()
-        return f"✅ 已加入购物车：{name}（{platform}）¥{price:.1f}"
+        return f"已加入购物车：{name}（{platform}）¥{price:.1f}"
 
     def remove(self, index: int) -> str:
         """移除第 N 项（1-based）"""
         if 1 <= index <= len(self.items):
             it = self.items.pop(index - 1)
             self._save()
-            return f"🗑️ 已从购物车移除第{index}项：{it.name}"
-        return f"⚠️  购物车没有第{index}项（当前共{len(self.items)}项）"
+            return f"已从购物车移除第{index}项：{it.name}"
+        return f"购物车没有第{index}项（当前共{len(self.items)}项）"
 
     def clear(self) -> str:
         n = len(self.items)
         self.items.clear()
         self._save()
-        return f"🗑️ 已清空购物车（共{n}项）"
+        return f"已清空购物车（共{n}项）"
 
     def set_note(self, index: int, note: str) -> str:
         if 1 <= index <= len(self.items):
             self.items[index - 1].note = note
             self._save()
-            return f"✅ 已为第{index}项添加备注：{note}"
-        return f"⚠️  购物车没有第{index}项"
+            return f"已为第{index}项添加备注：{note}"
+        return f"购物车没有第{index}项"
 
     def toggle_monitor(self, index: int) -> str:
         if 1 <= index <= len(self.items):
@@ -119,24 +119,24 @@ class VirtualCart:
             it.monitor = not it.monitor
             self._save()
             state = "已开启" if it.monitor else "已关闭"
-            return f"✅ 第{index}项「{it.name}」的价格监控{state}"
-        return f"⚠️  购物车没有第{index}项"
+            return f"第{index}项「{it.name}」的价格监控{state}"
+        return f"购物车没有第{index}项"
 
     def monitor_all(self, on: bool = True) -> str:
         for it in self.items:
             it.monitor = on
         self._save()
-        return f"✅ 已{'全部开启' if on else '全部关闭'} {len(self.items)} 项的价格监控"
+        return f"已{'全部开启' if on else '全部关闭'} {len(self.items)} 项的价格监控"
 
     # ---------- 展示 ----------
     def list_text(self) -> str:
         if not self.items:
-            return "🛒 虚拟购物车为空。推荐后可用「把第N款加入购物车」收藏。"
-        lines = ["🛒 **我的虚拟购物车**（这是 Agent 内部收藏，不等同于平台官方购物车）",
+            return "虚拟购物车为空。推荐后可用「把第N款加入购物车」收藏。"
+        lines = ["**我的虚拟购物车**（这是 Agent 内部收藏，不等同于平台官方购物车）",
                  "| # | 商品 | 平台 | 当前价 | 备注 | 监控 | 记录时间 |",
                  "|---|---|---|---|---|---|---|"]
         for i, it in enumerate(self.items, 1):
-            mon = "🔔 开" if it.monitor else "—"
+            mon = "开" if it.monitor else "—"
             note = it.note or "—"
             link = f"[链接]({it.url})" if it.url else "—"
             lines.append(
@@ -165,7 +165,7 @@ class VirtualCart:
         try:
             import web_scraper
         except Exception:
-            return ["⚠️  价格监控需要 web_scraper 模块，当前不可用。"]
+            return ["价格监控需要 web_scraper 模块，当前不可用。"]
         for it in targets:
             if not it.url:
                 continue  # 无链接无法重新抓取
@@ -183,7 +183,7 @@ class VirtualCart:
             if new_p.final_price < it.current_price:
                 drop = it.current_price - new_p.final_price
                 alerts.append(
-                    f"🔔 价格提醒：「{it.name}」从 ¥{it.current_price:.1f} "
+                    f"价格提醒：「{it.name}」从 ¥{it.current_price:.1f} "
                     f"降至 ¥{new_p.final_price:.1f}（降价 ¥{drop:.1f}，{it.platform}）"
                 )
                 # 更新记录价

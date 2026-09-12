@@ -852,7 +852,7 @@ class ProductSearcher:
         return p
 
 
-    # ---------- Mock 演示搜索（仅演示场景，须用 ⚠️ 标记） ----------
+    # ---------- Mock 演示搜索（仅演示场景，须用「演示数据」文字标记） ----------
     def mock_search(self, keyword: str, category: Optional[str] = None,
                     price_max: Optional[float] = None,
                     require_tags: Optional[List[str]] = None,

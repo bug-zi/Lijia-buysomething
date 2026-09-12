@@ -74,7 +74,8 @@ CATEGORY_HINTS = {
 class RequestParser:
 
     def parse(self, text: str, *, profile: Optional[Dict[str, Any]] = None,
-              previous: Optional["ShoppingRequest"] = None) -> ShoppingRequest:
+              previous: Optional["ShoppingRequest"] = None,
+              history: Optional[List[Dict[str, str]]] = None) -> ShoppingRequest:
         # 1) 先走规则引擎得到稳定结构
         req = self._parse_rules(text)
 
@@ -83,7 +84,7 @@ class RequestParser:
             try:
                 prev_d = self._req_to_dict(previous) if previous else None
                 prof_d = dict(profile or {})
-                j = parse_shopping_request_with_llm(text, prof_d, prev_d)
+                j = parse_shopping_request_with_llm(text, prof_d, prev_d, history=history)
                 if j:
                     self._merge_llm_json(req, j)
                     # 若规则没识别到"买第X款"但LLM识别到了，保留LLM的判断
@@ -536,6 +537,13 @@ class RequestParser:
         # 排除项与要求项冲突时优先排除
         excl = set(req.exclude_tags)
         req.require_tags = [r for r in req.require_tags if r not in excl]
+
+        # 条数：规则优先，仅当规则未解析到时采纳 LLM（clamp 1..10，与抓取克制一致）
+        for src, dst in (("top_n", "top_n"), ("per_platform_n", "per_platform_n")):
+            if getattr(req, dst) is None:
+                v = j.get(src)
+                if isinstance(v, (int, float)) and v >= 1:
+                    setattr(req, dst, int(max(1, min(10, v))))
 
         # 增量 intent / target_rank / is_adjustment（LLM明确判断时覆盖规则）
         if j.get("is_adjustment") is True:

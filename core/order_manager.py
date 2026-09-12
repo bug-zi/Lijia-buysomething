@@ -130,7 +130,7 @@ class OrderManager:
         【硬性约束】此方法必须在用户明确确认后调用
         """
         if order.order_id in self.orders:
-            return f"ℹ️  订单 {order.order_id} 已存在，请勿重复提交"
+            return f"订单 {order.order_id} 已存在，请勿重复提交"
         order.status = "已支付"
         order.pay_time = time.strftime("%Y-%m-%d %H:%M:%S")
         order.events.append(
@@ -146,23 +146,23 @@ class OrderManager:
 
     def _format_order_confirm(self, o: Order) -> str:
         lines = []
-        lines.append("🎉 **下单成功**")
+        lines.append("**下单成功**")
         lines.append(f"- **订单号**：`{o.order_id}`  （请保存，用于查询物流/售后）")
         lines.append(f"- **商品**：{o.product_name}")
         lines.append(f"- **平台/店铺**：{o.platform} · {o.seller}")
-        lines.append(f"- **实付金额**：¥{o.final_price:.2f}  （⚠️ 模拟下单，未真实扣款，支付请自行前往官方平台完成）")
+        lines.append(f"- **实付金额**：¥{o.final_price:.2f}  （模拟下单，未真实扣款，支付请自行前往官方平台完成）")
         lines.append(f"- **收货信息**：{o.receiver}  {o.phone}  {o.address}")
         lines.append(f"- **快递**：{o.carrier} · 运单号 `{o.track_no}`")
         lines.append(f"- **下单时间**：{o.create_time}")
         lines.append("")
-        lines.append("📌 后续：你可以回复「物流 {订单号}」查询物流，或「我的订单」查看全部订单")
+        lines.append("后续：你可以回复「物流 {订单号}」查询物流，或「我的订单」查看全部订单")
         return "\n".join(lines)
 
     # ---------- 订单查询 ----------
     def list_orders(self) -> str:
         if not self.orders:
-            return "ℹ️  暂无订单。使用「买第X款」可发起下单。"
-        lines = ["📋 **我的订单**"]
+            return "暂无订单。使用「买第X款」可发起下单。"
+        lines = ["**我的订单**"]
         for oid in sorted(self.orders.keys(), reverse=True):
             o = self.orders[oid]
             lines.append(
@@ -184,9 +184,9 @@ class OrderManager:
     def query_logistics(self, order_id_or_short: str) -> str:
         order = self.get_order(order_id_or_short)
         if not order:
-            return f"⚠️  未找到订单「{order_id_or_short}」，请核对订单号。"
+            return f"未找到订单「{order_id_or_short}」，请核对订单号。"
         self._advance_logistics(order)  # 按"虚拟时间"推进物流节点
-        lines = [f"🚚 **物流详情**（订单：{order.order_id}）"]
+        lines = [f"**物流详情**（订单：{order.order_id}）"]
         lines.append(f"- 商品：{order.product_name}")
         lines.append(f"- 当前状态：**{order.status}**")
         lines.append(f"- 快递：{order.carrier} · 运单号 `{order.track_no}`")
@@ -249,9 +249,9 @@ class OrderManager:
     def apply_after_sale(self, order_id: str, reason: str) -> str:
         order = self.get_order(order_id)
         if not order:
-            return f"⚠️  未找到订单「{order_id}」。"
+            return f"未找到订单「{order_id}」。"
         if order.status in ("售后", "已取消"):
-            return f"ℹ️  订单当前已是「{order.status}」状态。"
+            return f"订单当前已是「{order.status}」状态。"
         self._advance_logistics(order)
         evt = LogisticsEvent(
             time=time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -262,7 +262,7 @@ class OrderManager:
         order.status = "售后"
         self._save()
         return (
-            f"✅ **售后申请已提交**\n"
+            f"**售后申请已提交**\n"
             f"- 订单：{order.order_id}\n"
             f"- 原因：{reason}\n"
             f"- 当前状态：售后处理中（请保留商品/包装完整，配合商家核验）\n"
@@ -272,9 +272,9 @@ class OrderManager:
     def cancel_order(self, order_id: str, reason: str = "") -> str:
         order = self.get_order(order_id)
         if not order:
-            return f"⚠️  未找到订单「{order_id}」。"
+            return f"未找到订单「{order_id}」。"
         if order.status in ("已发货", "运输中", "派送中", "已签收"):
-            return f"⚠️  订单已进入物流环节，无法直接取消。可使用「售后 {order.order_id} <原因>」申请退换货。"
+            return f"订单已进入物流环节，无法直接取消。可使用「售后 {order.order_id} <原因>」申请退换货。"
         order.status = "已取消"
         order.cancel_reason = reason or "用户取消"
         order.events.append(
@@ -282,7 +282,7 @@ class OrderManager:
                            detail="订单已取消：" + order.cancel_reason)
         )
         self._save()
-        return f"✅ 订单 `{order.order_id}` 已取消。原因：{order.cancel_reason}"
+        return f"订单 `{order.order_id}` 已取消。原因：{order.cancel_reason}"
 
 
 if __name__ == "__main__":

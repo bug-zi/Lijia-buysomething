@@ -343,4 +343,4 @@ if __name__ == "__main__":
         assert bad not in raw, f"敏感字段泄漏：{bad}"
 
     os.remove(LOGIN_STATE_FILE)
-    print("✅ config_store 自测通过（缓存读写 / 状态合并 / 任务互斥 / 无敏感字段）")
+    print("config_store 自测通过（缓存读写 / 状态合并 / 任务互斥 / 无敏感字段）")
