@@ -348,6 +348,11 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   border: none; line-height: 1;
 }
 .img-thumb .remove:hover { background: rgba(255,77,79,.9); }
+.chat-bubble img.md-img {
+  max-width: 220px; max-height: 160px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border);
+  display: block; margin: 6px 0; background: var(--card);
+}
 .quick-chips {
   display: flex; gap: 8px; flex-wrap: wrap;
   margin: 10px 2px 0;
@@ -559,6 +564,8 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   .chat-bubble { max-width: 92%; }
 }
 </style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+<style>.material-symbols-outlined{font-size:20px;line-height:1;vertical-align:middle;}</style>
 </head>
 <body>
 <div class="app">
@@ -591,7 +598,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
         <span class="ico">🏆</span><span class="label">TOP3 推荐</span>
       </div>
       <div class="nav-item" data-tab="tab-api"     onclick="switchTab('tab-api')">
-        <span class="ico">🔑</span><span class="label">API Key 设置</span>
+        <span class="ico"><span class="material-symbols-outlined">settings</span></span><span class="label">配置库</span>
         <span class="badge" id="llm-badge" style="display:none"></span>
       </div>
     </nav>
@@ -738,11 +745,11 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
       </div>
     </section>
 
-    <!-- Tab 5: API Key 设置 -->
+    <!-- Tab 5: 配置库（AI 能力 + 网站登录态） -->
     <section class="tab-panel" id="tab-api">
       <div class="card">
         <div class="card-title">
-          <span>🔑 AI 能力 · API Key 设置</span>
+          <span>配置库 · AI 能力与网站登录态</span>
           <span class="sub">
             用于增强：<b>①需求解析理解 ②买家真实评价摘要 ③个性化点评报告</b>。
             未配置或调用失败时，自动回退到规则引擎，推荐能力依然可用。
@@ -808,6 +815,18 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
           <li>项目根目录已附带 <code>.gitignore</code>，<code>api_key.json</code>、<code>.env</code>、订单档案等敏感文件都被标记为忽略，不会误提交到版本仓库。</li>
           <li>调用失败（网络错误/额度不足/Key过期）会自动回退到规则引擎，**推荐 / 订单 / 物流等功能完全不受影响**。</li>
         </ul>
+
+        <hr style="border:none;border-top:1px dashed var(--border);margin:18px 0;">
+        <div class="card-title">
+          <span>网站登录态 · 常用购物平台</span>
+          <span class="sub">登录/检测由你在弹出的真实浏览器里人工完成，程序绝不过手账号密码；会话保存在本项目 .browser_profile，重启不丢。</span>
+        </div>
+        <div id="login-states" style="display:grid;gap:12px;"></div>
+        <div class="help" style="margin-top:14px;">
+          <b>登录有效期说明：</b>有效期各平台不一且不承诺固定值——一般几天到几个月（京东 PC 会话常见约 30 天，淘宝定期使用可维持更久）；
+          改密码、异地登录、平台风控都可能随时提前失效。<b>没有真正永不过期的方法</b>：本地持久化 + 低频正常使用就是最接近的做法，
+          失效后在这里点「扫码登录」重新授权即可。本系统不支持从别处导入 Cookie：复制会话凭据极易触发风控，且程序绝不过手账号凭据。
+        </div>
       </div>
     </section>
   </main>
@@ -850,13 +869,13 @@ function switchTab(id) {
     "tab-profile": "👤 个人档案 · 建立偏好让推荐更懂你",
     "tab-orders":  "📦 订单 & 物流 · 实时跟踪售后进度",
     "tab-rec":     "🏆 TOP3 推荐 · 多维度打分横评",
-    "tab-api":     "🔑 AI API Key 设置 · 自动探测服务商 + 安全保存",
+    "tab-api":     "配置库 · AI 能力 + 网站登录态",
   }[id] || "";
   $("#topbar-title").textContent = title;
 
   if (id === "tab-profile") loadProfile();
   if (id === "tab-orders")  loadOrders();
-  if (id === "tab-api")     loadApiKeyStatus();
+  if (id === "tab-api")     { loadApiKeyStatus(); loadLoginStates(); }
 }
 
 /* =============== Tab 1: 聊天 =============== */
@@ -881,6 +900,8 @@ function renderMarkdown(text) {
   t = t.replace(/\n---+\n/g,    "<hr>");
   t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   t = t.replace(/`([^`]+)`/g,    "<code>$1</code>");
+  // 图片 ![alt](https://...)
+  t = t.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img class="md-img" src="$2" alt="$1">');
   // 无序列表
   t = t.replace(/(?:^|\n)((?:\s*[-*]\s+.+\n?)+)/g, (m, block) => {
     const items = block.trim().split(/\n/).map(l => {
@@ -1225,6 +1246,69 @@ async function apiKeyAction(action){
   // 同步更新侧栏徽标
   const snap = await (await fetch("/api/health").catch(()=>({json:async()=>({})})).json()) ;
   // 借一次聊天刷新snapshot——改用一次 /api/chat 的轻量方式不行，直接用 loadApiKeyStatus 已经返回了配置
+}
+
+
+/* =============== 配置库 · 网站登录态 =============== */
+const LOGIN_BUSY = new Set(["检测中", "登录中", "清理中"]);
+let _loginPollTimer = null;
+
+function loginStatusPill(status){
+  const cls = status === "已登录" ? "green" : "warn";
+  return `<span class="tag-pill ${cls}"><span class="dot"></span>${status}</span>`;
+}
+
+function renderLoginStates(states){
+  const box = $("#login-states");
+  if(!box) return;
+  box.innerHTML = states.map(s => {
+    const busy = LOGIN_BUSY.has(s.status);
+    const btns = busy
+      ? `<button class="btn" disabled>${s.status === "登录中" ? "登录中（关闭登录窗口即可取消）" : s.status + "，请稍候…"}</button>`
+      : `<button class="btn" onclick="loginAction('check','${s.platform}')">立即检测</button>
+         <button class="btn" onclick="loginAction('login','${s.platform}')">扫码登录</button>` +
+        (s.status === "已登录"
+          ? `<button class="btn danger" onclick="loginAction('clear','${s.platform}')">清除登录态</button>` : "");
+    const meta = [s.checked_at, s.source].filter(Boolean).join(" · ") || "从未检测";
+    return `
+      <div style="background:var(--bg);border:1px dashed var(--border);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div>
+          <b>${s.platform}</b> ${loginStatusPill(s.status)}
+          <div class="help" style="margin-top:4px;">${meta}${s.note ? " · " + s.note : ""}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">${btns}</div>
+      </div>`;
+  }).join("");
+}
+
+async function loadLoginStates(){
+  const r = await api("/api/login","GET");
+  if(r && r.ok) renderLoginStates(r.states || []);
+  const busy = ((r && r.states) || []).some(s => LOGIN_BUSY.has(s.status));
+  if(busy && !_loginPollTimer){
+    _loginPollTimer = setInterval(async () => {
+      const rr = await api("/api/login","GET");
+      if(!(rr && rr.ok)) return;
+      renderLoginStates(rr.states || []);
+      if(!((rr.states || []).some(s => LOGIN_BUSY.has(s.status)))){
+        clearInterval(_loginPollTimer); _loginPollTimer = null;
+        toast("登录态任务已结束","ok");
+      }
+    }, 3000);
+  }
+}
+
+async function loginAction(action, platform){
+  if(action === "clear" && !confirm(`确认清除 ${platform} 的登录态吗？清除后需要重新扫码登录。`)) return;
+  toast(action === "check" ? `正在打开浏览器检测 ${platform} 登录态（约 5-25 秒）…`
+      : action === "login" ? "正在弹出浏览器，请在窗口内扫码/手动登录（最长等 3 分钟，关闭窗口即可取消）…"
+      : `正在清除 ${platform} 登录态…`);
+  const r = await api("/api/login","POST",{action, platform});
+  if(!r){ toast("请求失败","err"); return; }
+  if(!r.ok){ toast(r.message || "操作失败","warn"); }
+  else if(action === "check"){ toast(r.message || `${platform}：${r.status}`,"ok"); }
+  renderLoginStates(r.states || []);
+  loadLoginStates();   // 若进入 登录中/清理中，自动启动轮询
 }
 
 

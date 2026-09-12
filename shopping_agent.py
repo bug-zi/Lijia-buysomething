@@ -60,6 +60,7 @@ class ChatSession:
         self._pending_rank: Optional[int] = None              # 待确认购买的序号
         self._cancelled = False                                # 用户是否已取消当前搜索
         self._pending_urls: List[str] = []                    # 被验证码拦截的URL，用于"继续抓取"重试
+        self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
 
     # ---------- 对外主入口 ----------
     def chat(self, user_input: str) -> str:
@@ -167,16 +168,50 @@ class ChatSession:
             resp = clarify_hint.strip() + "\n\n" + resp
         return resp
 
-    # ---------- 推荐流程（新工作流：解析需求 → 输出关键词 → 提示粘贴链接） ----------
+    # ---------- 推荐流程（需求直达商品：限量真实搜索 → 打分 TOP3；失败回退粘贴链接） ----------
     def _flow_recommend(self, raw_text: str, req: ShoppingRequest) -> str:
         keyword = req.keyword or req.category or "商品"
         # 记录为上一次请求（后续可基于此调整）
         self._last_request = req
+        self._pending_search = False
 
-        # 新工作流：不自动搜索，输出关键词 + 提示用户手动搜索并粘贴链接
+        # 真实搜索优先（每平台限量 ≤10 条，默认 6；登录墙交还人工）
+        try:
+            products, block_reason, need_human = self.searcher.search_real(
+                keyword, platforms=req.platforms or None, max_per_platform=6)
+        except Exception as e:
+            products, block_reason, need_human = [], f"真实搜索异常：{e}", False
+
+        # 登录墙/验证码：暂停，等用户在弹出的浏览器里自行扫码/验证
+        if need_human:
+            self._pending_search = True
+            return (f"🔍 已按需求准备搜索「{keyword}」。\n\n"
+                    f"❌ {block_reason}\n\n"
+                    "完成后回复「**继续抓取**」，我会继续为你搜索并推荐。")
+
+        if products:
+            # 无价卡片无法参与比较，先剔除并如实说明
+            no_price = [p for p in products if not p.final_price]
+            products = [p for p in products if p.final_price]
+            if len(products) >= 3:
+                if no_price:
+                    pass  # 数量少时静默剔除，避免误导性的 ¥0 展示
+                products, scores = self.recommender.recommend_from_products(
+                    products, budget=req.price_max)
+                extra = req.summary() or None
+                resp = self.recommender.format_top3(products, scores, extra_require=extra)
+                return resp + (
+                    "\n---\n> ℹ️ 以上来自浏览器实时搜索的**真实商品**（📦 价格/图片为搜索页所见，"
+                    "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
+
+        # 搜索不足或失败 → 如实告知 + 回退「粘贴链接」老路径
         lines = [
             f"🎯 **需求解析完成**，搜索关键词：`{keyword}`",
             f"   · 筛选条件：{req.summary()}",
+        ]
+        if block_reason:
+            lines.append(f"\n⚠️ 自动搜索未成功：{block_reason}")
+        lines += [
             "",
             "📋 **下一步操作**：",
             f"   1. 在浏览器打开 淘宝/京东/拼多多，搜索 `{keyword}`",
@@ -444,6 +479,12 @@ class ChatSession:
                 return (f"🔁 正在用真实浏览器重新抓取 {len(urls)} 个被拦截的链接……\n"
                         "（请保持浏览器窗口可见，如再次出现验证码，请手动完成并回复「继续抓取」）\n\n"
                         + self._flow_grab_and_compare(urls))
+            # 搜索流程被登录墙/验证码拦截 → 续跑搜索
+            if self._pending_search and self._last_request is not None:
+                self._pending_search = False
+                return ("🔁 登录/验证已完成，正在继续搜索……\n"
+                        "（请保持浏览器窗口可见，如再次遇到验证码请手动完成并回复「继续抓取」）\n\n"
+                        + self._flow_recommend(t, self._last_request))
             if self._last_request is None:
                 return "⚠️ 当前没有挂起的搜索任务。请先提出购物需求（如「买一条连衣裙 预算200」）。"
             req = self._last_request
@@ -451,10 +492,11 @@ class ChatSession:
             return (f"🎯 当前没有待重试的商品链接。上次需求关键词：`{kw}`\n"
                     "请把你在浏览器搜索到的 **1-5 个商品详情链接** 粘贴给我，我会逐个抓取对比。")
 
-        # 安装 Playwright：在本机装好真实浏览器抓取依赖
-        if t in ("安装playwright", "安装 playwright", "安装Playwright",
+        # 安装浏览器驱动：patchright 优先（playwright 兜底），供真实搜索/抓取使用
+        if t in ("安装浏览器驱动", "安装驱动", "安装patchright", "安装 patchright",
+                 "装浏览器驱动", "安装playwright", "安装 playwright",
                  "装playwright", "装 playwright"):
-            return self._install_playwright()
+            return self._install_browser_driver()
 
         # --- 虚拟购物车指令 ---
         # 加入购物车：把第N款加入购物车 / 加入购物车第N款 / 收藏第N款
@@ -570,44 +612,67 @@ class ChatSession:
         lines.append("如需价格监控，回「把第1款加入购物车」后再「监控第1项」。")
         return "\n".join(lines)
 
-    def _install_playwright(self) -> str:
-        """在本机安装 Playwright + Chromium 浏览器二进制，供真实抓取使用"""
+    def _install_browser_driver(self) -> str:
+        """安装浏览器驱动：patchright 优先（默认源失败切清华镜像），playwright 兜底；
+        本机无 Chrome/Edge 时按需下载 Chromium 内核"""
         import subprocess
-        try:
-            # 1) 安装 playwright 包
-            r1 = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "playwright",
-                 "--quiet"],
-                capture_output=True, text=True, timeout=300)
-            if r1.returncode != 0:
-                return (f"⚠️ Playwright 包安装失败（退出码 {r1.returncode}）。\n"
-                        f"stderr: {r1.stderr[-300:]}\n"
-                        "请手动运行：`pip install playwright`")
-        except subprocess.TimeoutExpired:
-            return "⚠️ Playwright 包安装超时（5 分钟）。请稍后重试或手动运行 `pip install playwright`。"
-        try:
-            # 2) 下载 Chromium 浏览器二进制
-            r2 = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                capture_output=True, text=True, timeout=600)
-            if r2.returncode != 0:
-                return (f"⚠️ Chromium 二进制下载失败（退出码 {r2.returncode}）。\n"
-                        f"stderr: {r2.stderr[-300:]}\n"
-                        "请手动运行：`python -m playwright install chromium`")
-        except subprocess.TimeoutExpired:
-            return "⚠️ Chromium 下载超时（10 分钟）。请稍后重试或手动运行 `python -m playwright install chromium`。"
-        # 3) 验证
+
+        def _pip_install(pkg: str, mirror: bool = False):
+            cmd = [sys.executable, "-m", "pip", "install", pkg, "--quiet"]
+            if mirror:
+                cmd += ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple"]
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        # 1) 驱动包：patchright 默认源 → patchright 清华镜像 → playwright 兜底
+        installed = ""
+        errors: List[str] = []
+        for pkg, mirror in (("patchright", False), ("patchright", True),
+                            ("playwright", False), ("playwright", True)):
+            label = pkg + ("（清华镜像）" if mirror else "")
+            try:
+                r = _pip_install(pkg, mirror)
+            except subprocess.TimeoutExpired:
+                errors.append(f"{label} 超时")
+                continue
+            if r.returncode == 0:
+                installed = pkg
+                break
+            errors.append(f"{label} 失败（退出码 {r.returncode}）")
+        if not installed:
+            return ("⚠️ 驱动包安装失败（已尝试默认源与清华镜像）。\n"
+                    + "\n".join(f"· {e}" for e in errors[-2:])
+                    + "\n请手动运行：`pip install patchright`")
+
+        # 2) 浏览器：本机有 Chrome/Edge 则无需下载内核
         try:
             import web_scraper
-            web_scraper._has_playwright.cache_clear() if hasattr(web_scraper._has_playwright, "cache_clear") else None
-            if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
-                return ("✅ Playwright + Chromium 安装完成！\n"
-                        "现在搜索淘宝/京东/拼多多时会自动启动有头真实浏览器抓取（stealth + 随机延迟 + 会话复用）。\n"
-                        "如遇验证码，我会暂停并交还浏览器给你手动验证，完成后回复「继续抓取」即可。")
+            if web_scraper._find_system_browser():
+                return self._verify_browser_driver(
+                    installed, "检测到本机 Chrome/Edge，无需下载浏览器内核。")
         except Exception:
             pass
-        return ("✅ 安装命令已执行，请重启服务后生效。\n"
-                "重启后搜索会自动启用真实浏览器抓取。")
+        try:
+            r = subprocess.run([sys.executable, "-m", installed, "install", "chromium"],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                return (f"⚠️ 驱动包 {installed} 已装好，但 Chromium 下载失败。\n"
+                        f"请手动运行：`python -m {installed} install chromium`，"
+                        "或本机安装 Chrome/Edge 后无需下载。")
+        except subprocess.TimeoutExpired:
+            return (f"⚠️ Chromium 下载超时（10 分钟）。驱动包 {installed} 已装好，"
+                    f"可稍后手动运行 `python -m {installed} install chromium`。")
+        return self._verify_browser_driver(installed, "已下载 Chromium 内核。")
+
+    def _verify_browser_driver(self, pkg: str, note: str) -> str:
+        try:
+            import web_scraper
+            if web_scraper._has_playwright() and web_scraper._check_browser_binaries():
+                return (f"✅ 浏览器驱动就绪（{pkg}）。{note}\n"
+                        "现在直接输入购物需求即可真实搜索；遇登录墙会弹出浏览器让你扫码"
+                        "（登录一次后短期免登），遇验证码我会暂停交还人工，回复「继续抓取」续跑。")
+        except Exception:
+            pass
+        return f"✅ 安装命令已执行（{pkg}），请重启服务后生效。"
 
     # ---------- 会话状态导出（用于调试/可视化） ----------
     def snapshot(self) -> Dict[str, Any]:

@@ -9,4 +9,7 @@ search_history.json
 temp/
 .browser_profile/
 .codegraph/
+.trae/
+scrape_cache.json
+virtual_cart.json
 login_state.json

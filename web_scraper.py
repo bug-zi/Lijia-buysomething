@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-真实电商抓取层（Playwright 真实浏览器版 · 单链接详情页抓取）
+真实电商抓取层（Playwright 真实浏览器版 · 详情页抓取 + 限量搜索页抓取）
 
-【反爬强制规则】
-  - 禁止自动批量搜索商品列表，禁止遍历搜索结果页。
-  - 仅接受用户主动粘贴的单个商品详情链接，逐个抓取。
-  - 必须使用 Playwright 真实浏览器（有头 + stealth + 持久化配置 + 随机延迟）。
-  - 验证码/滑块/登录弹窗：暂停自动化，交还浏览器给用户，
-    输出「检测到验证，请在弹出的浏览器里手动完成验证，完成后回复“继续抓取”」。
+【抓取克制规则】（2026-09-12 经开发者修订，替代旧「禁止批量搜索」条款）
+  - 搜索仅在用户主动发起购物需求时进行；每次需求每平台限量抓取结果页前 ≤10 条卡片。
+  - 不翻页、不遍历搜索结果；不做定时/后台轮询搜索。
+  - 必须使用真实有头浏览器（真实 Chrome/Edge 优先 + 持久化会话 + 随机延迟 + 慢速滚动）。
+  - 反拦截基座：优先 Patchright（驱动级指纹规避，仅修补自动化框架自身指纹），
+    缺失回退原版 Playwright；仅限指纹层面，不绕过任何验证码/风控。
+  - 登录墙/验证码：暂停自动化交还用户（用户自行扫码/手动登录，程序绝不过手账号密码），
+    输出「请在弹出的浏览器里登录/完成验证，完成后回复“继续抓取”」，不绕过任何平台风控。
   - 抓取失败必须如实告知，严禁编造商品信息。演示数据须用 ⚠️ 标记。
-  - 浏览器真人模拟：点击/滚动 800–2200ms 随机延迟；页面加载后等待 1.2–3s 再提取。
 """
 
 import os
@@ -20,6 +21,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
 
 from product_searcher import Product, Review
+
+import config_store  # noqa: E402  配置库：抓取时顺带回写登录态
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,7 +64,13 @@ def _slow_scroll(page, steps: int = 5, per_step_min: float = 0.6,
 
 def _has_playwright() -> bool:
     try:
-        import playwright  # noqa
+        import patchright  # noqa  # 反拦截基座优先
+        from patchright.sync_api import sync_playwright  # noqa
+        return True
+    except Exception:
+        pass
+    try:
+        import playwright  # noqa  # 原版回退
         from playwright.sync_api import sync_playwright  # noqa
         return True
     except Exception:
@@ -69,6 +78,10 @@ def _has_playwright() -> bool:
 
 
 def _check_browser_binaries() -> Optional[str]:
+    """返回可用的浏览器通道：系统 Chrome/Edge 优先（指纹更真实），否则捆绑 Chromium，无则 None"""
+    sys_channel = _find_system_browser()
+    if sys_channel:
+        return sys_channel
     try:
         home = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
@@ -86,6 +99,25 @@ def _check_browser_binaries() -> Optional[str]:
         return None
     except Exception:
         return None
+
+
+def _find_system_browser() -> Optional[str]:
+    """探测本机已安装的真实 Chrome/Edge（对淘宝/天猫风控的指纹更友好）"""
+    candidates = [
+        ("chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        ("chrome", r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ("chrome", os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                r"Google\Chrome\Application\chrome.exe")),
+        ("msedge", r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+        ("msedge", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for channel, path in candidates:
+        try:
+            if path and os.path.exists(path):
+                return channel
+        except Exception:
+            continue
+    return None
 
 
 def _detect_block(page, platform: str) -> Tuple[bool, str]:
@@ -128,32 +160,108 @@ def _detect_platform(url: str) -> str:
     return "未知平台"
 
 
+def _get_sync_playwright():
+    """反拦截基座（spec 2026-09-12 修订）：Patchright 优先（驱动级修补 CDP 指纹，drop-in 兼容），
+    未安装则回退原版 Playwright（可选依赖红线：缺 patchright 不影响启动）。
+    返回 (sync_playwright, 是否为 patchright)。"""
+    try:
+        from patchright.sync_api import sync_playwright
+        return sync_playwright, True
+    except Exception:
+        from playwright.sync_api import sync_playwright
+        return sync_playwright, False
+
+
+_FALLBACK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+
+
 def _launch_browser(headless: bool = False):
-    from playwright.sync_api import sync_playwright
-    pw = sync_playwright().start()
+    sp_factory, using_patchright = _get_sync_playwright()
+    pw = sp_factory().start()
     launch_args = [
         "--disable-blink-features=AutomationControlled",
         "--start-maximized",
         "--no-sandbox",
         "--disable-dev-shm-usage",
     ]
-    context = pw.chromium.launch_persistent_context(
+    channel = _find_system_browser()
+    launch_kwargs: Dict[str, Any] = dict(
         user_data_dir=BROWSER_PROFILE_DIR,
         headless=headless,
         args=launch_args,
         viewport={"width": 1440, "height": 900},
         locale="zh-CN",
         timezone_id="Asia/Shanghai",
-        user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"),
     )
-    context.add_init_script(_STEALTH_JS)
+    if not channel:
+        launch_kwargs["user_agent"] = _FALLBACK_UA
+
+    # 启动重试：① 真实 Chrome/Edge channel → ② 无 channel（捆绑 Chromium）→ ③ 等 2s 再试
+    # （第 ③ 步兜底 profile 被上一次会话短暂占用的场景）
+    context = None
+    last_err: Optional[Exception] = None
+    for i, use_channel in enumerate((True, False, False)):
+        if use_channel and not channel:
+            continue
+        kw = dict(launch_kwargs)
+        if use_channel:
+            kw["channel"] = channel
+        else:
+            kw.setdefault("user_agent", _FALLBACK_UA)
+            if i == 2:
+                time.sleep(2)
+        try:
+            context = pw.chromium.launch_persistent_context(**kw)
+            break
+        except Exception as e:
+            last_err = e
+    if context is None:
+        try:
+            pw.stop()
+        except Exception:
+            pass
+        raise last_err if last_err is not None else RuntimeError("浏览器启动失败")
+
+    # Patchright 官方警告：不要叠加自定义 stealth/init 脚本（会破坏驱动级隐身、暴露自动化特征）。
+    # 仅在回退原版 Playwright 时使用 _STEALTH_JS。
+    if not using_patchright:
+        context.add_init_script(_STEALTH_JS)
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
 
 
 # ---------- 单链接详情页抓取（核心入口） ----------
+def _save_failure_screenshot(page, url: str) -> str:
+    """抓取失败时留存现场截图到 temp/，便于排查（失败不静默）"""
+    try:
+        d = os.path.join(BASE_DIR, "temp")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, "scrape_fail_%s.png" % time.strftime("%Y%m%d_%H%M%S"))
+        page.screenshot(path=path, full_page=False)
+        return path
+    except Exception:
+        return ""
+
+
+def _goto_with_retry(page, url: str, timeout: int = 30000) -> Optional[Exception]:
+    """两段式导航：domcontentloaded 30s → commit +45s 重试一次；两次都失败返回最后一次异常"""
+    last_err: Optional[Exception] = None
+    for attempt, wait_until in enumerate(("domcontentloaded", "commit"), 1):
+        try:
+            page.goto(url, wait_until=wait_until,
+                      timeout=timeout if attempt == 1 else timeout + 15000)
+            return None
+        except Exception as e:
+            last_err = e
+            try:
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+    return last_err
+
+
 def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
     """
     抓取单个商品详情页，提取结构化字段。
@@ -167,11 +275,12 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
     }
 
     if not _has_playwright():
-        result["block_reason"] = "Playwright 未安装，请对我说「安装 Playwright」"
+        result["block_reason"] = "浏览器驱动未安装，请对我说「安装浏览器驱动」"
         result["data_source"] = "演示"
         return result
     if not _check_browser_binaries():
-        result["block_reason"] = "Chromium 二进制未下载，请运行 python -m playwright install chromium"
+        result["block_reason"] = ("未找到可用浏览器：请安装 Chrome/Edge，"
+                                  "或运行 python -m playwright install chromium")
         result["data_source"] = "演示"
         return result
 
@@ -183,7 +292,17 @@ def grab_product_detail(url: str, headless: bool = False) -> Dict[str, Any]:
         return result
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        goto_err = _goto_with_retry(page, url)
+        if goto_err is not None:
+            # 加载失败多为风控静默拦截（页面永不加载完成），与验证码同样交还人工
+            shot = _save_failure_screenshot(page, url)
+            result["block_reason"] = (
+                f"🛑 {platform} 页面加载超时（{goto_err.__class__.__name__}），"
+                "疑似被风控拦截。请在弹出的浏览器里手动打开该链接并完成验证/登录，"
+                "完成后回复「继续抓取」。"
+                + (f"（失败截图已保存：{shot}）" if shot else ""))
+            result["need_human"] = True
+            return result
         _random_delay(1.2, 3.0)
         _slow_scroll(page, steps=4)
         _random_delay(0.8, 1.8)
@@ -505,6 +624,285 @@ def get_price_history(url: str) -> Dict[str, Any]:
             result["level"] = "正常价"
         else:
             result["level"] = "高价"
+    return result
+
+
+# ---------- 限量搜索页抓取（需求直达商品，2026-09-12 新增） ----------
+# 克制条款：仅用户主动发起时搜索；每平台每次 ≤10 条；不翻页、不遍历；登录墙交还人工。
+
+SEARCH_SITES: Dict[str, Dict[str, Any]] = {
+    "京东": {
+        # 2026-09-12 实测新版搜索页（登录态）：卡片 plugin_goodsCardWrapper + data-sku 属性，
+        # 无 <a href>，链接由 data-sku 拼接；旧版 #J_goodsList selector 保留作回退
+        "url": "https://search.jd.com/Search?keyword={kw}&enc=utf-8",
+        "cards": ["[class*='goodsCardWrapper']", "#J_goodsList li.gl-item", "li[data-sku]"],
+        "name": ["[class*='goods_title_container']", ".p-name em", ".p-name"],
+        "price": ["[class*='price']", ".p-price i", ".p-price"],
+        "image": ["img[src*='360buyimg']", "img"],
+        "seller": ["[class*='shop']", "[class*='Shop']", ".p-shop a", ".p-shop"],
+        "sales": ["[class*='goods_volume']", ".p-commit strong a", ".p-commit"],
+        "href": [],
+        "sku_attr": "data-sku",
+        "url_template": "https://item.jd.com/{sku}.html",
+    },
+    "淘宝/天猫": {
+        "url": "https://s.taobao.com/search?q={kw}",
+        "cards": ["a[class*='doubleCard']", "[class*='doubleCardWrapper']",
+                  "a[href*='item.taobao.com']", "a[href*='detail.tmall.com']"],
+        "name": ["[class*='title'] span", "[class*='title']"],
+        "price": ["[class*='price']", "[class*='Price']"],
+        "image": ["img"],
+        "seller": ["[class*='shopName']", "[class*='shop']"],
+        "sales": ["[class*='realSales']", "[class*='sale']"],
+        "href": [],   # 卡片本身即 <a>
+    },
+}
+
+
+def _first_text(el, selectors: List[str], limit: int = 120) -> str:
+    for sel in selectors:
+        try:
+            sub = el.query_selector(sel)
+            if sub:
+                t = (sub.inner_text() or "").strip()
+                if t:
+                    return t[:limit]
+        except Exception:
+            continue
+    return ""
+
+
+def _first_attr(el, selectors: List[str], attr: str = "src") -> str:
+    for sel in selectors:
+        try:
+            sub = el.query_selector(sel)
+            if sub is None:
+                continue
+            candidates = [attr]
+            if attr == "src":       # 懒加载图常见变体
+                candidates += ["data-src", "data-lazy-img"]
+            for a in candidates:
+                v = sub.get_attribute(a) or ""
+                if v:
+                    return ("https:" + v) if v.startswith("//") else v
+        except Exception:
+            continue
+    return ""
+
+
+def _parse_count(text: str) -> int:
+    """'已售1.2万+' / '5000+条评价' → int；解析不到返回 0（不编造）"""
+    if not text:
+        return 0
+    m = re.search(r'(\d+(?:\.\d+)?)\s*万', text)
+    if m:
+        return int(float(m.group(1)) * 10000)
+    m = re.search(r'(\d[\d,]*)', text.replace(',', ''))
+    return int(m.group(1)) if m else 0
+
+
+def _detect_search_wall(page, platform: str) -> Tuple[bool, str]:
+    """搜索页专用拦截检测：以登录/风控 URL 跳转为主，特征词只保留真墙词。
+    不用 _detect_block（其 '请登录'/'slider' 等词在搜索页导航栏/轮播组件里是正常文案，会误判）。"""
+    try:
+        low_url = (page.url or "").lower()
+    except Exception:
+        low_url = ""
+    if "login" in low_url or "passport" in low_url or "punish" in low_url:
+        return True, "页面被跳转到登录/风控页"
+    signals = {
+        # passport.jd.com：京东搜索未登录时整页渲染为登录页，其资源/链接带此特征
+        "淘宝/天猫": ["x5sec", "punish", "滑动验证", "验证码", "扫码登录"],
+        "京东": ["passport.jd.com", "验证码", "手机扫码安全登录", "个人用户登录"],
+        "拼多多": ["验证码", "滑动验证"],
+    }.get(platform, ["滑动验证", "验证码"])
+    try:
+        html = (page.content() or "").lower()
+    except Exception:
+        return False, ""
+    for s in signals:
+        if s.lower() in html:
+            return True, f"检测到反爬特征词：{s}"
+    return False, ""
+
+
+# ---------- 登录辅助：同窗口跳登录页等用户扫码（程序绝不过手账号密码） ----------
+LOGIN_URLS = {
+    "京东": "https://passport.jd.com/new/login.aspx",
+    "淘宝/天猫": "https://login.taobao.com/member/login.jhtml",
+}
+
+
+def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180) -> bool:
+    """当前浏览器窗口内跳转登录页，原地等待用户扫码（浏览器保持打开，无多窗口抢 profile）。
+    登录成功（context 内任意标签页跳离登录域）返回 True；超时/用户关窗返回 False。
+    会话写入持久化 profile（.browser_profile），登录一次后短期内无需重复扫码。"""
+    try:
+        page.goto(LOGIN_URLS[platform], wait_until="domcontentloaded", timeout=30000)
+    except Exception:
+        pass
+    deadline = time.time() + max_wait_s
+    probe_fails = 0
+    while time.time() < deadline:
+        # 关窗检测必须用真实 RPC 往返（page.title）：page.is_closed()/page.url 都是本地状态，
+        # 用户直接关窗（进程退出）时 close 事件可能永远不送达，二者会恒为 False/旧值，曾致假「登录中」卡死。
+        # 导航瞬间 RPC 也可能偶发报错，故连续 3 次（约 6s）失败才判定关窗，避免误杀进行中的登录。
+        try:
+            page.title()
+            probe_fails = 0
+        except Exception:
+            probe_fails += 1
+            if probe_fails >= 3 or page.is_closed():
+                return False   # 窗口/浏览器已关闭：关窗即取消
+        # 登录成功：context 内任意标签页跳离登录域（部分平台登录后在新标签页完成跳转）
+        try:
+            urls = [(p.url or "").lower() for p in page.context.pages]
+        except Exception:
+            return False
+        if any(u.startswith("http") and "login" not in u and "passport" not in u for u in urls):
+            _random_delay(1.5, 3.0)   # 留时间写入 cookie/localStorage
+            return True
+        time.sleep(2)
+    return False
+
+
+def search_platform(keyword: str, platform: str, max_results: int = 8,
+                    headless: bool = False) -> Dict[str, Any]:
+    """
+    限量搜索：打开平台搜索结果页，抓取前 min(max_results, 10) 条商品卡片。
+    返回 {"platform", "keyword", "cards": [...], "block_reason", "need_human", "data_source"}。
+    卡片字段：name/price_text/image/seller/sales_text/url。拿不到的字段留空，绝不编造。
+    """
+    result: Dict[str, Any] = {
+        "platform": platform, "keyword": keyword, "cards": [],
+        "block_reason": "", "need_human": False, "data_source": "真实",
+    }
+    site = SEARCH_SITES.get(platform)
+    if not site:
+        result["block_reason"] = f"暂不支持{platform}的搜索页抓取（如实告知，非编造）"
+        result["data_source"] = "演示"
+        return result
+    if not _has_playwright():
+        result["block_reason"] = "浏览器驱动未安装，请对我说「安装浏览器驱动」"
+        result["data_source"] = "演示"
+        return result
+    if not _check_browser_binaries():
+        result["block_reason"] = ("未找到可用浏览器：请安装 Chrome/Edge，"
+                                  "或运行 python -m playwright install chromium")
+        result["data_source"] = "演示"
+        return result
+
+    try:
+        pw, context, page = _launch_browser(headless=headless)
+    except Exception as e:
+        result["block_reason"] = f"浏览器启动失败：{e}"
+        result["data_source"] = "演示"
+        return result
+
+    try:
+        from urllib.parse import quote
+        url = site["url"].format(kw=quote(keyword))
+
+        # 两轮：第一轮遇登录墙 → 同窗口跳登录页等扫码 → 第二轮自动重搜
+        for round_i in range(2):
+            goto_err = _goto_with_retry(page, url)
+            if goto_err is not None:
+                shot = _save_failure_screenshot(page, url)
+                result["block_reason"] = (
+                    f"🛑 {platform} 搜索页加载超时，疑似被风控拦截。"
+                    "请在弹出的浏览器里手动完成验证/登录，完成后回复「继续抓取」。"
+                    + (f"（失败截图已保存：{shot}）" if shot else ""))
+                result["need_human"] = True
+                return result
+            _random_delay(1.2, 2.5)
+
+            # 登录墙：URL 跳转特征 + 真墙特征词（搜索页专用检测，避免误判）
+            blocked, reason = _detect_search_wall(page, platform)
+            if not blocked:
+                break
+            low_url_now = (page.url or "").lower()
+            is_login = ("登录" in reason or "login" in reason.lower() or "passport" in reason.lower()
+                        or "login" in low_url_now or "passport" in low_url_now)
+            if is_login and platform in LOGIN_URLS and round_i == 0:
+                # 同窗口登录：浏览器保持打开原地等扫码（最多 3 分钟），成功后自动重搜；
+                # 登录一次写入持久化 profile，短期内无需重复扫码
+                ok = _goto_login_and_wait(page, platform)
+                if ok:
+                    config_store.record_state(platform, "已登录", "抓取扫码")
+                    continue
+                result["block_reason"] = (
+                    f"🛑 {platform} 登录未完成（超时或窗口被关闭）。"
+                    "回复「继续抓取」可再次弹出登录窗口；登录成功后短期内无需重复扫码。")
+                result["need_human"] = True
+                return result
+            if is_login:
+                config_store.record_state(platform, "未登录", "抓取时")
+                result["block_reason"] = (
+                    f"🛑 {platform} 搜索仍需登录（本次扫码未成功或已超时）。"
+                    "回复「继续抓取」可重试登录；登录一次后短期内无需重复扫码。")
+            else:
+                result["block_reason"] = (f"🛑 {platform} {reason}。请在弹出的浏览器里手动完成验证，"
+                                          "完成后回复「继续抓取」。")
+            result["need_human"] = True
+            return result
+
+        _slow_scroll(page, steps=3)   # 触发懒加载图片/价格
+
+        cards = []
+        for sel in site["cards"]:
+            try:
+                cards = page.query_selector_all(sel)
+                if cards:
+                    break
+            except Exception:
+                continue
+
+        n = max(1, min(max_results, 10))   # 克制上限：单平台 ≤10 条
+        for card in cards[:n]:
+            c = {
+                "name": _first_text(card, site["name"]),
+                "price_text": _first_text(card, site["price"], limit=30),
+                "image": _first_attr(card, site["image"]),
+                "seller": _first_text(card, site["seller"], limit=60),
+                "sales_text": _first_text(card, site["sales"], limit=40),
+                "url": _first_attr(card, site["href"], attr="href"),
+            }
+            # 京东新版卡片：无 <a>，由 data-sku 拼商品链接
+            sku_attr = site.get("sku_attr")
+            if sku_attr and site.get("url_template"):
+                try:
+                    sku = card.get_attribute(sku_attr) or ""
+                    if sku:
+                        c["url"] = site["url_template"].format(sku=sku)
+                except Exception:
+                    pass
+            if not site["href"]:
+                try:
+                    h = card.get_attribute("href") or ""
+                    if h:
+                        c["url"] = ("https:" + h) if h.startswith("//") else h
+                except Exception:
+                    pass
+            # 价格兜底：从卡片文本提取首个 ¥ 金额（新版页面价格被拆成多个 span）
+            if not c["price_text"]:
+                try:
+                    m = re.search(r'¥\s*(\d+(?:\.\d{1,2})?)', card.inner_text() or "")
+                    if m:
+                        c["price_text"] = m.group(1)
+                except Exception:
+                    pass
+            if c["name"] or c["price_text"]:
+                result["cards"].append(c)
+
+        if not result["cards"]:
+            result["block_reason"] = (f"{platform} 搜索结果页未解析到商品卡片"
+                                      "（页面结构可能变化），可改用粘贴商品链接的详情抓取。")
+    finally:
+        try:
+            context.close()
+            pw.stop()
+        except Exception:
+            pass
     return result
 
 
