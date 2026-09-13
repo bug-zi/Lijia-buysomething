@@ -22,18 +22,27 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* 两层主题体系：data-mode（浅色/深色 表面配色） × data-skin（皮肤 主题色系，默认 classic） */
 :root {
-  /* 浅色（默认）表面 */
-  --text-1: #1f2937;
-  --text-2: #4b5563;
-  --text-3: #6b7280;
-  --border: #e5e7eb;
-  --bg: #f3f6fb;
-  --card: #ffffff;
-  --chat-bg: #fafbfc;
+  /* 浅色（classic 默认）表面：淡蓝白皮肤浅染 */
+  --text-1: #16283e;
+  --text-2: #41556f;
+  --text-3: #66788d;
+  --border: #d9e4f2;
+  --bg: #eef4fb;
+  --card: #fdfeff;
+  --chat-bg: #f6f9fd;
   --ai-bubble: #ffffff;
   --success-bg: #e6fcec; --success-t: #237804;
   --warn-bg: #fff8e6;    --warn-t: #ad6800;  --warn-border: #ffe58f;
   --danger-bg: #fff1f0;  --danger-t: #cf1322;
+  --danger-border: #ffccc7;
+  /* 状态盒信息/中性底（订单状态等），深色在 [data-mode="dark"] 覆盖 */
+  --info-bg: #e6f4ff;  --info-t: #0050b3;
+  --mute-bg: #f5f5f5;  --mute-t: #595959;
+  /* 背景装饰层着色（classic 浅色） */
+  --deco-strong: rgba(24,144,255,.32);
+  --deco-mid:    rgba(24,144,255,.20);
+  --deco-soft:   rgba(24,144,255,.15);
+  --deco-line:   rgba(11,61,145,.22);
   --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
   --shadow:    0 6px 16px rgba(16,24,40,.08), 0 2px 4px rgba(16,24,40,.05);
   --shadow-lg: 0 20px 40px rgba(16,24,40,.12), 0 4px 8px rgba(16,24,40,.06);
@@ -46,15 +55,11 @@
   --primary-soft-l: #e6f4ff;
   --primary-soft-d: rgba(24,144,255,.16);
   --ub-1: #1890ff; --ub-2: #096dd9;
-  --sidebar-grad: linear-gradient(180deg, #0b3d91 0%, #1890ff 100%);
   --primary-shadow: 0 6px 16px rgba(24,144,255,.32);
   --primary-focus: rgba(24,144,255,.15);
   /* 模式组合变量 */
   --primary-soft: var(--primary-soft-l);
   --user-bubble: linear-gradient(135deg, var(--ub-1) 0%, var(--ub-2) 100%);
-  /* 壁纸：resource/ 静态路由提供，按模式在下方切换 */
-  --app-bg: url("/resource/bg-light.png");
-  --bg-img-opacity: .5;
   --radius: 14px;
   --radius-sm: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Arial, sans-serif;
@@ -65,46 +70,81 @@
   --primary: #c06c84; --primary-dark: #9a4e63;
   --primary-soft-l: #f9e9ef; --primary-soft-d: rgba(192,108,132,.18);
   --ub-1: #c06c84; --ub-2: #9a4e63;
-  --sidebar-grad: linear-gradient(180deg, #6d3345 0%, #c06c84 100%);
   --primary-shadow: 0 6px 16px rgba(192,108,132,.32);
   --primary-focus: rgba(192,108,132,.16);
+  --bg: #f9eff3; --card: #fffcfd; --chat-bg: #fbf5f7; --ai-bubble: #ffffff;
+  --border: #ecd8e0; --text-1: #38202b; --text-2: #5f4350; --text-3: #836a75;
+  --deco-strong: rgba(192,108,132,.32); --deco-mid: rgba(192,108,132,.20);
+  --deco-soft: rgba(192,108,132,.15);   --deco-line: rgba(109,51,69,.22);
 }
 [data-skin="forest"] {
   --primary: #3d8a68; --primary-dark: #2c6650;
   --primary-soft-l: #e7f3ed; --primary-soft-d: rgba(61,138,104,.18);
   --ub-1: #3d8a68; --ub-2: #2c6650;
-  --sidebar-grad: linear-gradient(180deg, #1e4433 0%, #3d8a68 100%);
   --primary-shadow: 0 6px 16px rgba(61,138,104,.32);
   --primary-focus: rgba(61,138,104,.16);
+  --bg: #eff6f1; --card: #fcfefd; --chat-bg: #f5faf7; --ai-bubble: #ffffff;
+  --border: #d6e6dc; --text-1: #1b2f25; --text-2: #41584a; --text-3: #647a6c;
+  --deco-strong: rgba(61,138,104,.32); --deco-mid: rgba(61,138,104,.20);
+  --deco-soft: rgba(61,138,104,.15);   --deco-line: rgba(30,68,51,.22);
 }
 [data-skin="sunset"] {
-  --primary: #cf8a3e; --primary-dark: #a76a24;
+  --primary: #cf8a3e; --primary-dark: #9c6220;
   --primary-soft-l: #faeedd; --primary-soft-d: rgba(207,138,62,.18);
-  --ub-1: #cf8a3e; --ub-2: #a76a24;
-  --sidebar-grad: linear-gradient(180deg, #7c4a17 0%, #cf8a3e 100%);
+  --ub-1: #cf8a3e; --ub-2: #9c6220;
   --primary-shadow: 0 6px 16px rgba(207,138,62,.32);
   --primary-focus: rgba(207,138,62,.16);
+  --bg: #f9f2e8; --card: #fffdf9; --chat-bg: #fbf6ee; --ai-bubble: #ffffff;
+  --border: #ecdfc9; --text-1: #33271a; --text-2: #5a4b38; --text-3: #7d6f5c;
+  --deco-strong: rgba(207,138,62,.32); --deco-mid: rgba(207,138,62,.20);
+  --deco-soft: rgba(207,138,62,.15);   --deco-line: rgba(124,74,23,.22);
 }
-/* ------ 深色模式表面 ------ */
+/* ------ 深色模式：模式级共享值（表面/文字下沉到各皮肤深色块） ------ */
 [data-mode="dark"] {
-  --text-1: #e6eaf1;
-  --text-2: #b6bfcc;
-  --text-3: #8794a7;
-  --border: #2a3140;
-  --bg: #12151c;
-  --card: #1b2029;
-  --chat-bg: #171b23;
-  --ai-bubble: #232a37;
   --success-bg: rgba(82,196,26,.16); --success-t: #8ed77a;
   --warn-bg: rgba(250,173,20,.15);   --warn-t: #f3c454; --warn-border: rgba(250,173,20,.35);
   --danger-bg: rgba(255,77,79,.16);  --danger-t: #ff8a8d;
+  --danger-border: rgba(255,138,141,.4);
+  --info-bg: var(--primary-soft);   --info-t: var(--primary);
+  --mute-bg: rgba(255,255,255,.08); --mute-t: var(--text-2);
   --shadow-sm: 0 1px 3px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.35);
   --shadow:    0 6px 16px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
   --shadow-lg: 0 20px 40px rgba(0,0,0,.55), 0 4px 8px rgba(0,0,0,.45);
   --primary-soft: var(--primary-soft-d);
-  --app-bg: url("/resource/bg-dark.png");
-  --bg-img-opacity: .55;
   color-scheme: dark;
+}
+/* 深色皮肤表面：深色皮肤色 + 白字（非中性黑） */
+[data-mode="dark"][data-skin="classic"] {
+  --bg: #0e1a2e; --card: #16243a; --chat-bg: #121e33; --ai-bubble: #1c2c46;
+  --border: #2b3f5e; --text-1: #e9eef7; --text-2: #b9c6da; --text-3: #8798b1;
+  --primary: #2e95ff; --primary-dark: #9fd4ff;
+  --primary-shadow: 0 6px 16px rgba(46,149,255,.30);
+  --deco-strong: rgba(110,190,255,.30); --deco-mid: rgba(110,190,255,.19);
+  --deco-soft: rgba(80,160,255,.13);   --deco-line: rgba(150,200,255,.20);
+}
+[data-mode="dark"][data-skin="sakura"] {
+  --bg: #2a161f; --card: #33202b; --chat-bg: #2d1a24; --ai-bubble: #3b2531;
+  --border: #4b3140; --text-1: #f5e9ee; --text-2: #d4bcc7; --text-3: #a98e9b;
+  --primary: #c87890; --primary-dark: #eeb4c6;
+  --primary-shadow: 0 6px 16px rgba(200,120,144,.30);
+  --deco-strong: rgba(238,166,190,.30); --deco-mid: rgba(238,166,190,.19);
+  --deco-soft: rgba(220,140,168,.13);  --deco-line: rgba(240,190,210,.20);
+}
+[data-mode="dark"][data-skin="forest"] {
+  --bg: #12211a; --card: #1a2d23; --chat-bg: #15261d; --ai-bubble: #20352a;
+  --border: #2f463a; --text-1: #e8f1ec; --text-2: #b9c8bd; --text-3: #8a9c8e;
+  --primary: #4a9a75; --primary-dark: #a3d4bb;
+  --primary-shadow: 0 6px 16px rgba(74,154,117,.30);
+  --deco-strong: rgba(120,200,158,.30); --deco-mid: rgba(120,200,158,.19);
+  --deco-soft: rgba(100,180,138,.13);  --deco-line: rgba(160,210,180,.20);
+}
+[data-mode="dark"][data-skin="sunset"] {
+  --bg: #241a10; --card: #2e2317; --chat-bg: #291f14; --ai-bubble: #382b1c;
+  --border: #483a26; --text-1: #f4ece0; --text-2: #d4c5ad; --text-3: #a5967f;
+  --primary: #c27f35; --primary-dark: #ecc690;
+  --primary-shadow: 0 6px 16px rgba(194,127,53,.30);
+  --deco-strong: rgba(235,180,115,.30); --deco-mid: rgba(235,180,115,.19);
+  --deco-soft: rgba(220,160,95,.13);   --deco-line: rgba(240,200,150,.20);
 }
 html, body { height: 100%; }
 body {
@@ -115,24 +155,16 @@ body {
   line-height: 1.6;
   overflow: hidden;
 }
-/* 壁纸层：模式对应壁纸蒙在 --bg 底色上、内容之下（负 z-index 位于 body 背景之上） */
-body::before {
-  content: "";
-  position: fixed; inset: 0;
-  z-index: -1;
-  background: var(--app-bg) center / cover no-repeat;
-  opacity: var(--bg-img-opacity);
-  pointer-events: none;
+/* 背景装饰层：内联 SVG（四母题组按皮肤显隐，颜色全走 --deco-* 变量），内容之下、body 背景之上 */
+.bg-deco {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  z-index: -1; pointer-events: none;
 }
-/* 皮肤色调层：低饱和主题色渐变轻扫左上角，让同一张壁纸与四套皮肤都协调 */
-body::after {
-  content: "";
-  position: fixed; inset: 0;
-  z-index: -1;
-  background: linear-gradient(150deg, var(--primary-soft) 0%, transparent 46%);
-  opacity: .4;
-  pointer-events: none;
-}
+.bg-deco .deco-motif { display: none; }
+[data-skin="classic"] .bg-deco .deco-classic,
+[data-skin="sakura"]  .bg-deco .deco-sakura,
+[data-skin="forest"]  .bg-deco .deco-forest,
+[data-skin="sunset"]  .bg-deco .deco-sunset { display: inline; }
 button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 input, textarea, select { font-family: inherit; font-size: 14px; }
 ::selection { background: var(--primary-soft); color: var(--primary-dark); }
@@ -140,43 +172,44 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 /* ============== 布局：左侧导航 + 右侧内容 ============== */
 .app { display: flex; height: 100vh; width: 100vw; }
 
-/* ------ 侧边栏 ------ */
+/* ------ 侧边栏：随深色/浅色模式的透明玻璃面板（0% 底色，仅模糊透出背景装饰层） ------ */
 .sidebar {
   width: 260px; flex-shrink: 0;
-  background: var(--sidebar-grad);
-  color: #fff;
+  background: transparent;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
-  padding: 20px 14px 16px;
+  padding: 12px 14px 16px;
 }
 .brand {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px 20px;
-  border-bottom: 1px solid rgba(255,255,255,.18);
+  height: 44px; padding: 0;
+  border-bottom: 1px solid var(--border);
 }
 .brand .logo {
-  width: 40px; height: 40px; border-radius: 12px;
-  background: rgba(255,255,255,.2);
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--user-bubble);
+  color: #fff;
   display: grid; place-items: center;
-  font-size: 22px;
-  backdrop-filter: blur(4px);
-  box-shadow: var(--shadow-sm);
+  font-size: 20px;
+  box-shadow: var(--primary-shadow);
 }
-.brand .title { font-size: 16px; font-weight: 700; line-height: 1.2; }
-.brand .sub { font-size: 12px; opacity: .85; margin-top: 3px; }
+.brand .title { font-size: 16px; font-weight: 700; line-height: 1.2; color: var(--text-1); }
 
-.nav { margin-top: 18px; display: flex; flex-direction: column; gap: 4px; }
+.nav { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
 .nav-item {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  color: rgba(255,255,255,.92);
+  color: var(--text-2);
   cursor: pointer;
   transition: background .18s ease, transform .15s ease;
   user-select: none;
 }
-.nav-item:hover { background: rgba(255,255,255,.14); }
+.nav-item:hover { background: var(--mute-bg); }
 .nav-item.active {
-  background: #fff;
+  background: var(--primary-soft);
   color: var(--primary-dark);
   box-shadow: var(--shadow-sm);
   transform: translateX(2px);
@@ -193,15 +226,15 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 
 .sidebar-footer {
   margin-top: auto; padding: 14px 8px 0;
-  border-top: 1px solid rgba(255,255,255,.18);
-  font-size: 12px; color: rgba(255,255,255,.85); line-height: 1.6;
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text-3); line-height: 1.6;
 }
 .sidebar-footer .tip {
   display: flex; align-items: flex-start; gap: 6px;
 }
 .sidebar-footer code {
-  background: rgba(255,255,255,.22); padding: 0 5px; border-radius: 4px;
-  color: #fff; font-size: 11.5px;
+  background: var(--mute-bg); padding: 0 5px; border-radius: 4px;
+  color: var(--text-1); font-size: 11.5px;
 }
 
 /* ------ 内容区 ------ */
@@ -211,9 +244,8 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   background: transparent;  /* 透出壁纸 */
 }
 .topbar {
-  height: 56px; flex-shrink: 0;
-  background: var(--card);
-  background: color-mix(in srgb, var(--card) 78%, transparent);
+  height: 50px; flex-shrink: 0;
+  background: transparent;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
@@ -235,14 +267,21 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   background: currentColor;
 }
 
-/* 主题切换（模式 × 皮肤） */
-.theme-ctl { display: flex; align-items: center; gap: 12px; }
-.mode-btn {
-  padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 500;
+/* 顶栏右侧操作钮（会话列表开关 / 深浅色切换） */
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.topbar-icon-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
   border: 1px solid var(--border); background: var(--card); color: var(--text-2);
+  cursor: pointer;
   transition: all .18s ease;
 }
-.mode-btn:hover { border-color: var(--primary); color: var(--primary); }
+.topbar-icon-btn:hover { border-color: var(--primary); color: var(--primary); }
+.topbar-icon-btn .material-symbols-outlined { font-size: 19px; }
+.topbar-icon-btn.active {
+  background: var(--primary-soft); border-color: var(--primary-focus); color: var(--primary);
+}
 .skin-dots { display: flex; align-items: center; gap: 7px; }
 .skin-dot {
   width: 18px; height: 18px; border-radius: 50%;
@@ -301,7 +340,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   box-shadow: var(--primary-shadow);
 }
 .btn.primary:hover { color: #fff; transform: translateY(-1px); filter: brightness(1.05); }
-.btn.danger { color: var(--danger); border-color: #ffccc7; }
+.btn.danger { color: var(--danger); border-color: var(--danger-border); }
 .btn.danger:hover { background: var(--danger-bg); color: var(--danger); }
 .btn.ghost { border: none; background: transparent; color: var(--text-2); }
 .btn.ghost:hover { background: var(--primary-soft); color: var(--primary-dark); }
@@ -336,7 +375,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 /* ============== Tab 1: 聊天 ============== */
 .chat-layout {
   display: flex; gap: 14px;
-  height: calc(100vh - 130px);
+  height: 100%;  /* 撑满 tab-panel 内容盒（顶栏56+面板padding），不再多预留 130px */
   position: relative;
 }
 .session-side {
@@ -347,7 +386,15 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  transition: width .28s ease, opacity .2s ease;
 }
+/* 收起态：宽度归零、贴右缘滑出（内层固定最小宽防挤压回流），聊天区恢复全宽 */
+.chat-layout:not(.side-open) .session-side {
+  width: 0; min-width: 0; opacity: 0;
+  border-left-width: 0; border-right-width: 0;
+  pointer-events: none;
+}
+.session-side-head, .session-list { min-width: 232px; }
 .session-side-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 12px;
@@ -385,24 +432,27 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 1px 5px; border-radius: 5px;
 }
 .session-item .s-meta .s-del:hover { color: var(--danger); background: var(--danger-bg); }
-.session-toggle-btn { display: none; }
 .chat-wrap {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column;
   height: 100%;
 }
+/* 聊天页专属：更薄的面板内边距，把纵向空间还给消息区 */
+#tab-chat { padding: 14px 18px; }
 .chat-messages {
   flex: 1; min-height: 0;
   padding: 14px 18px;
   overflow-y: auto;
   background: var(--chat-bg);
-  background: color-mix(in srgb, var(--chat-bg) 72%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  scroll-behavior: smooth;
 }
+.chat-messages::-webkit-scrollbar { width: 8px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 .chat-msg {
   display: flex; gap: 10px; margin-bottom: 14px;
   animation: fadeUp .28s ease both;
@@ -410,6 +460,10 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-msg { animation: none; }
+  .chat-messages { scroll-behavior: auto; }
 }
 .chat-msg .avatar {
   width: 36px; height: 36px; border-radius: 12px;
@@ -424,9 +478,9 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 11px 14px;
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
-  white-space: pre-wrap;
   word-break: break-word;
   font-size: 14px;
+  line-height: 1.6;
 }
 .chat-msg.user .chat-bubble {
   background: var(--user-bubble); color: #fff;
@@ -436,6 +490,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   background: var(--ai-bubble); color: var(--text-1);
   border-top-left-radius: 4px;
   border: 1px solid var(--border);
+  max-width: min(94%, 960px);
 }
 /* Markdown 轻量渲染（服务端返回的是类md字符串） */
 .chat-bubble h1, .chat-bubble h2, .chat-bubble h3, .chat-bubble h4 { margin: .4em 0 .3em; line-height: 1.35; }
@@ -451,17 +506,18 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
 }
 .chat-bubble pre {
-  background: #0b3d91; color: #e6f4ff; padding: 10px 12px; border-radius: 8px;
+  background: var(--ub-2); color: #fff; padding: 10px 12px; border-radius: 8px;
   overflow-x: auto; margin: .5em 0;
 }
 .chat-bubble a { color: var(--primary-dark); text-decoration: none; border-bottom: 1px dashed; }
 .chat-bubble hr { border: none; border-top: 1px dashed var(--border); margin: .7em 0; }
 .chat-bubble table {
-  border-collapse: collapse; margin: .6em 0; font-size: 13px;
-  display: block; overflow-x: auto; white-space: nowrap;
+  border-collapse: collapse; margin: .6em 0; font-size: 12.5px;
+  width: 100%;
 }
 .chat-bubble th, .chat-bubble td {
-  border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+  border: 1px solid var(--border); padding: 5px 9px;
+  text-align: left; vertical-align: top; line-height: 1.45;
 }
 .chat-bubble th { background: var(--primary-soft); color: var(--primary-dark); }
 .chat-bubble strong { color: var(--primary-dark); font-weight: 600; }
@@ -469,7 +525,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 
 /* 输入区 */
 .chat-input-wrap {
-  margin-top: 14px;
+  margin-top: 10px;
   display: flex; gap: 10px; align-items: flex-end;
   padding: 10px 10px 10px 14px;
   background: var(--card);
@@ -612,10 +668,10 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .order-card .status-box.paid   { background: var(--success-bg); color: var(--success-t); }
 .order-card .status-box.shipped,
 .order-card .status-box.t { background: var(--warn-bg); color: var(--warn-t); }
-.order-card .status-box.delivered { background: #e6f4ff; color: #0050b3; }
+.order-card .status-box.delivered { background: var(--info-bg); color: var(--info-t); }
 .order-card .status-box.refund,
 .order-card .status-box.sale { background: var(--danger-bg); color: var(--danger-t); }
-.order-card .status-box.cancel { background: #f5f5f5; color: #595959; }
+.order-card .status-box.cancel { background: var(--mute-bg); color: var(--mute-t); }
 .status-box .big { font-size: 15px; }
 .status-box .small { font-size: 11px; font-weight: 400; opacity: .85; }
 .order-card .info .pname { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
@@ -788,40 +844,102 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
   .form-grid { grid-template-columns: 1fr; }
   .order-card { grid-template-columns: 1fr; }
   .chat-bubble { max-width: 92%; }
-  /* 窄屏：会话侧栏默认隐藏，可折叠为浮层 */
-  .session-side { display: none; }
-  .chat-layout.show-side .session-side {
-    display: flex; position: absolute; left: 0; top: 0; bottom: 0; z-index: 8;
+  /* 窄屏：会话侧栏变为右侧浮层（同样由侧缘把手控制展开/收起） */
+  .session-side {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 8;
     box-shadow: var(--shadow-lg);
   }
-  .session-toggle-btn { display: inline-flex; }
 }
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
 <style>.material-symbols-outlined{font-size:20px;line-height:1;vertical-align:middle;}</style>
 </head>
 <body>
+<svg class="bg-deco" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <filter id="decoBlur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="42"/></filter>
+    <filter id="decoBlurSm" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="12"/></filter>
+    <path id="dPetal" d="M0 0 C 16 -10, 22 -34, 10 -52 C 6 -60, -6 -60, -10 -52 C -22 -34, -16 -10, 0 0 Z"/>
+    <g id="dFlower">
+      <use href="#dPetal"/><use href="#dPetal" transform="rotate(72)"/>
+      <use href="#dPetal" transform="rotate(144)"/><use href="#dPetal" transform="rotate(216)"/>
+      <use href="#dPetal" transform="rotate(288)"/>
+      <circle r="7" fill="var(--deco-line)"/>
+    </g>
+    <g id="dLeafPair">
+      <path d="M0 0 C 18 -26, 56 -30, 78 -4 C 56 22, 18 24, 0 0 Z" fill="var(--deco-strong)"/>
+      <path d="M6 -2 C 30 -8, 52 -8, 72 -4" stroke="var(--deco-line)" stroke-width="2" fill="none" opacity=".6"/>
+    </g>
+  </defs>
+
+  <!-- 经典蓝：气泡光点 + 波浪线 -->
+  <g class="deco-motif deco-classic">
+    <g filter="url(#decoBlur)"><circle cx="190" cy="160" r="130" fill="var(--deco-soft)"/><circle cx="1470" cy="770" r="170" fill="var(--deco-soft)"/><circle cx="1280" cy="110" r="90" fill="var(--deco-soft)"/></g>
+    <circle cx="120" cy="120" r="46" fill="var(--deco-mid)"/><circle cx="134" cy="110" r="46" fill="none" stroke="var(--deco-strong)" stroke-width="2"/>
+    <circle cx="235" cy="255" r="18" fill="var(--deco-strong)"/><circle cx="330" cy="90" r="9" fill="var(--deco-mid)"/>
+    <circle cx="1460" cy="700" r="34" fill="var(--deco-mid)"/><circle cx="1370" cy="800" r="13" fill="var(--deco-strong)"/>
+    <circle cx="1530" cy="580" r="9" fill="var(--deco-mid)"/><circle cx="60" cy="420" r="12" fill="var(--deco-soft)"/>
+    <path d="M-40 780 C 200 720, 380 830, 620 770 S 1050 700, 1240 780" stroke="var(--deco-line)" stroke-width="3" fill="none" opacity=".7"/>
+    <path d="M-40 830 C 240 770, 430 880, 680 820 S 1120 750, 1320 830" stroke="var(--deco-line)" stroke-width="2" fill="none" opacity=".45"/>
+  </g>
+
+  <!-- 樱花粉：五瓣樱花 + 飘落花瓣 -->
+  <g class="deco-motif deco-sakura">
+    <g filter="url(#decoBlur)"><circle cx="200" cy="180" r="150" fill="var(--deco-soft)"/><circle cx="1430" cy="740" r="180" fill="var(--deco-soft)"/></g>
+    <path d="M-30 320 C 130 250, 300 230, 460 270" stroke="var(--deco-line)" stroke-width="5" fill="none" opacity=".55"/>
+    <use href="#dFlower" transform="translate(150,190) scale(1.5)" fill="var(--deco-strong)" opacity=".65"/>
+    <use href="#dFlower" transform="translate(330,150) scale(1.0) rotate(24)" fill="var(--deco-mid)" opacity=".6"/>
+    <use href="#dFlower" transform="translate(90,380) scale(.8) rotate(-18)" fill="var(--deco-mid)" opacity=".5"/>
+    <use href="#dPetal" transform="translate(470,330) scale(.9) rotate(140)" fill="var(--deco-strong)" opacity=".55"/>
+    <use href="#dPetal" transform="translate(260,430) scale(.7) rotate(-30)" fill="var(--deco-mid)" opacity=".5"/>
+    <use href="#dFlower" transform="translate(1450,760) scale(1.4) rotate(30)" fill="var(--deco-strong)" opacity=".6"/>
+    <use href="#dFlower" transform="translate(1280,820) scale(.9) rotate(-40)" fill="var(--deco-mid)" opacity=".55"/>
+    <use href="#dPetal" transform="translate(1370,620) scale(.8) rotate(200)" fill="var(--deco-mid)" opacity=".5"/>
+    <use href="#dPetal" transform="translate(1520,540) scale(.6) rotate(80)" fill="var(--deco-strong)" opacity=".45"/>
+  </g>
+
+  <!-- 森野绿：枝条 + 叶片 -->
+  <g class="deco-motif deco-forest">
+    <g filter="url(#decoBlur)"><circle cx="170" cy="740" r="160" fill="var(--deco-soft)"/><circle cx="1460" cy="150" r="150" fill="var(--deco-soft)"/></g>
+    <path d="M-30 760 C 170 700, 330 720, 500 660" stroke="var(--deco-line)" stroke-width="5" fill="none" opacity=".55"/>
+    <use href="#dLeafPair" transform="translate(150,712) rotate(-24)" opacity=".65"/>
+    <use href="#dLeafPair" transform="translate(300,690) scale(.8) rotate(18)" opacity=".55"/>
+    <use href="#dLeafPair" transform="translate(430,672) scale(.65) rotate(-40)" opacity=".5"/>
+    <use href="#dLeafPair" transform="translate(1400,170) rotate(155)" opacity=".6"/>
+    <use href="#dLeafPair" transform="translate(1270,240) scale(.75) rotate(190)" opacity=".5"/>
+    <use href="#dLeafPair" transform="translate(1520,320) scale(.6) rotate(120)" opacity=".45"/>
+    <circle cx="80" cy="560" r="9" fill="var(--deco-strong)" opacity=".5"/><circle cx="1560" cy="480" r="7" fill="var(--deco-mid)" opacity=".5"/>
+  </g>
+
+  <!-- 暖阳橙：落日光晕 + 暖光斑 -->
+  <g class="deco-motif deco-sunset">
+    <g filter="url(#decoBlur)"><circle cx="1360" cy="200" r="220" fill="var(--deco-soft)"/><circle cx="220" cy="760" r="190" fill="var(--deco-soft)"/></g>
+    <circle cx="1380" cy="180" r="92" fill="var(--deco-mid)"/><circle cx="1380" cy="180" r="52" fill="var(--deco-strong)"/>
+    <ellipse cx="300" cy="800" rx="330" ry="60" fill="var(--deco-mid)" filter="url(#decoBlurSm)" opacity=".7"/>
+    <circle cx="140" cy="620" r="10" fill="var(--deco-strong)" opacity=".6"/><circle cx="360" cy="680" r="7" fill="var(--deco-mid)" opacity=".55"/>
+    <circle cx="1180" cy="360" r="8" fill="var(--deco-strong)" opacity=".5"/><circle cx="1260" cy="480" r="6" fill="var(--deco-mid)" opacity=".5"/>
+    <path d="M-40 700 C 220 660, 420 720, 660 690" stroke="var(--deco-line)" stroke-width="3" fill="none" opacity=".5"/>
+  </g>
+</svg>
 <div class="app">
   <!-- ============= 侧边导航 ============= -->
   <aside class="sidebar">
     <div class="brand">
       <div class="logo"><span class="material-symbols-outlined" style="font-size:22px">shopping_cart</span></div>
-      <div>
-        <div class="title">购物AI助手</div>
-        <div class="sub">Personal Shopping Agent</div>
-      </div>
+      <div class="title">购物AI助手</div>
     </div>
 
     <nav class="nav">
       <div class="nav-item active" data-tab="tab-chat"  onclick="switchTab('tab-chat')">
         <span class="ico"><span class="material-symbols-outlined">chat_bubble</span></span><span class="label">对话购物</span>
       </div>
-      <div class="nav-item" data-tab="tab-profile" onclick="switchTab('tab-profile')">
-        <span class="ico"><span class="material-symbols-outlined">person</span></span><span class="label">用户中心</span>
-      </div>
       <div class="nav-item" data-tab="tab-orders"  onclick="switchTab('tab-orders')">
         <span class="ico"><span class="material-symbols-outlined">inventory_2</span></span><span class="label">订单 & 物流</span>
         <span class="badge" id="order-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-tab="tab-list"   onclick="switchTab('tab-list')">
+        <span class="ico"><span class="material-symbols-outlined">checklist</span></span><span class="label">购物清单</span>
+        <span class="badge" id="list-badge" style="display:none">0</span>
       </div>
       <div class="nav-item" data-tab="tab-cart"   onclick="switchTab('tab-cart')">
         <span class="ico"><span class="material-symbols-outlined">shopping_cart</span></span><span class="label">虚拟购物车</span>
@@ -829,6 +947,9 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
       </div>
       <div class="nav-item" data-tab="tab-rec"     onclick="switchTab('tab-rec')">
         <span class="ico"><span class="material-symbols-outlined">emoji_events</span></span><span class="label">TOP3 推荐</span>
+      </div>
+      <div class="nav-item" data-tab="tab-profile" onclick="switchTab('tab-profile')">
+        <span class="ico"><span class="material-symbols-outlined">person</span></span><span class="label">用户中心</span>
       </div>
       <div class="nav-item" data-tab="tab-api"     onclick="switchTab('tab-api')">
         <span class="ico"><span class="material-symbols-outlined">settings</span></span><span class="label">配置库</span>
@@ -852,37 +973,24 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
   <main class="main">
     <div class="topbar">
       <h2 id="topbar-title">对话购物 · 自然语言驱动全流程</h2>
-      <div class="theme-ctl">
-        <div class="skin-dots" title="皮肤色系">
-          <button class="skin-dot" data-skin="classic" style="--dot:#1890ff" onclick="setSkin('classic')" title="经典蓝"></button>
-          <button class="skin-dot" data-skin="sakura"  style="--dot:#c06c84" onclick="setSkin('sakura')"  title="樱花粉"></button>
-          <button class="skin-dot" data-skin="forest"  style="--dot:#3d8a68" onclick="setSkin('forest')"  title="森野绿"></button>
-          <button class="skin-dot" data-skin="sunset"  style="--dot:#cf8a3e" onclick="setSkin('sunset')"  title="暖阳橙"></button>
-        </div>
-        <button class="mode-btn" id="mode-btn" onclick="toggleMode()" title="深色/浅色模式">深色模式</button>
-      </div>
       <div class="meta">
         <span class="tag-pill green"><span class="dot"></span>后端已连接</span>
         <span class="tag-pill warn"  id="profile-badge"><span class="dot"></span>档案待完善</span>
         <span class="tag-pill"><span class="dot"></span>v1.0 · 零第三方依赖</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="topbar-icon-btn" id="session-toggle-btn" onclick="toggleSessionSide()" title="展开/收起会话列表" style="display:inline-flex">
+          <span class="material-symbols-outlined">format_list_bulleted</span>
+        </button>
+        <button class="topbar-icon-btn" id="mode-btn" onclick="toggleMode()" title="深色/浅色模式">
+          <span class="material-symbols-outlined" id="mode-ico">dark_mode</span>
+        </button>
       </div>
     </div>
 
     <!-- Tab1: 聊天 -->
     <section class="tab-panel active" id="tab-chat">
       <div class="chat-layout" id="chat-layout">
-        <aside class="session-side" id="session-side">
-          <div class="session-side-head">
-            <span>会话列表</span>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <button class="btn sm ghost" onclick="exportSessionMd()" title="导出当前会话为 Markdown"><span class="material-symbols-outlined">download</span></button>
-              <button class="btn sm" onclick="createSession()">＋ 新建会话</button>
-            </div>
-          </div>
-          <div class="session-list" id="session-list">
-            <div class="empty" style="padding:20px 8px;">会话加载中…</div>
-          </div>
-        </aside>
         <div class="chat-wrap">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg ai">
@@ -892,7 +1000,6 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         </div>
 
         <div class="quick-chips" id="quick-chips">
-          <button class="chip session-toggle-btn" onclick="toggleSessionSide()">会话列表</button>
           <button class="chip" onclick="sendMsg('录入档案')">录入档案</button>
           <button class="chip" onclick="sendMsg('查看档案')">查看档案</button>
           <button class="chip" onclick="sendMsg('买一条夏天的连衣裙，预算200以内')">连衣裙 ≤200</button>
@@ -901,6 +1008,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
           <button class="chip" onclick="sendMsg('我的订单')">我的订单</button>
           <button class="chip" onclick="sendMsg('物流')">最新物流</button>
           <button class="chip" onclick="sendMsg('展示我的购物车')">我的购物车</button>
+          <button class="chip" onclick="sendMsg('我的清单')">我的清单</button>
           <button class="chip" onclick="sendMsg('用浏览器抓取 连衣裙')">浏览器抓取真实数据</button>
         </div>
 
@@ -915,6 +1023,18 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         </div>
         <div class="img-preview-wrap" id="img-preview-wrap"></div>
         </div><!-- /chat-wrap -->
+        <aside class="session-side" id="session-side">
+          <div class="session-side-head">
+            <span>会话列表</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="btn sm ghost" onclick="exportSessionMd()" title="导出当前会话为 Markdown"><span class="material-symbols-outlined">download</span></button>
+              <button class="btn sm" onclick="createSession()">＋ 新建会话</button>
+            </div>
+          </div>
+          <div class="session-list" id="session-list">
+            <div class="empty" style="padding:20px 8px;">会话加载中…</div>
+          </div>
+        </aside>
       </div><!-- /chat-layout -->
     </section>
 
@@ -943,6 +1063,11 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div class="card-title">
           <span><span class="material-symbols-outlined">tune</span> 用户中心 · 界面与行为偏好</span>
           <span class="sub">点击选项立即生效并保存（本地 + 服务端双持久化）</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+          <span style="min-width:150px;color:var(--text-2);font-size:13.5px;">主题色（皮肤）</span>
+          <div class="skin-dots" id="uc-skins"></div>
+          <span class="help" style="flex:1;min-width:220px;">全局界面主题色系，点选立即生效（仅本机保存）；深色/浅色切换仍在右上角。</span>
         </div>
         <div id="uc-prefs" style="display:grid;gap:14px;"></div>
       </div>
@@ -988,6 +1113,32 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         </div>
         <div id="order-list" class="order-list">
           <div class="empty"><span class="big"><span class="material-symbols-outlined">inventory_2</span></span>暂无订单，到「对话购物」里完成一次下单吧！</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab3.25: 购物清单（购买前需求池） -->
+    <section class="tab-panel" id="tab-list">
+      <div class="card">
+        <div class="card-title">
+          <span><span class="material-symbols-outlined">checklist</span> 购物清单 / 需求池</span>
+          <div>
+            <button class="btn sm" onclick="loadList()"><span class="material-symbols-outlined">refresh</span> 刷新</button>
+            <button class="btn sm danger" onclick="listClearDone()"><span class="material-symbols-outlined">done_all</span> 清空已完成</button>
+          </div>
+        </div>
+        <div class="sub" style="margin-bottom:10px;">
+          先记下想买的商品或想解决的问题（可以很模糊），之后点条目上的「去推荐」进入对话，让 AI 帮你找方案。清单收藏的是需求，商品收藏在购物车。
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input type="text" class="input" id="list-input" style="flex:1" placeholder="例：夏天房间太热想凉快点；例：降噪耳机 预算500"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();listAdd();}">
+          <button class="btn sm" onclick="listAdd()"><span class="material-symbols-outlined">add</span> 添加</button>
+        </div>
+        <div id="list-pending" class="order-list"></div>
+        <div id="list-done-wrap" style="display:none;margin-top:12px;">
+          <div class="sub" style="cursor:pointer;font-weight:600;" onclick="listToggleDoneView()">已完成（<span id="list-done-count">0</span>）</div>
+          <div id="list-done" class="order-list" style="display:none;margin-top:6px;"></div>
         </div>
       </div>
     </section>
@@ -1146,8 +1297,8 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 function applyMode(mode) {
   document.documentElement.setAttribute("data-mode", mode);
   try { localStorage.setItem("sa_mode", mode); } catch (e) {}
-  const btn = $("#mode-btn");
-  if (btn) btn.textContent = mode === "dark" ? "浅色模式" : "深色模式";
+  const ico = $("#mode-ico");
+  if (ico) ico.textContent = mode === "dark" ? "light_mode" : "dark_mode";
 }
 function toggleMode() {
   const dark = document.documentElement.getAttribute("data-mode") === "dark";
@@ -1156,13 +1307,25 @@ function toggleMode() {
 function applySkin(skin) {
   document.documentElement.setAttribute("data-skin", skin);
   try { localStorage.setItem("sa_skin", skin); } catch (e) {}
-  $$(".skin-dot").forEach(d => d.classList.toggle("active", d.dataset.skin === skin));
+  $$(".skin-dot[data-skin]").forEach(d => d.classList.toggle("active", d.dataset.skin === skin));
 }
 function setSkin(skin) { applySkin(skin); }
+/* 皮肤色系选择（用户中心 · 界面与行为偏好）：与 data-skin 一一对应，点选立即生效 */
+const SKINS = [["classic","#1890ff","经典蓝"],["sakura","#c06c84","樱花粉"],
+  ["forest","#3d8a68","森野绿"],["sunset","#cf8a3e","暖阳橙"]];
+function renderUcSkins() {
+  const box = $("#uc-skins");
+  if (!box) return;
+  box.innerHTML = SKINS.map(([k, c, title]) =>
+    `<button class="skin-dot" data-skin="${k}" style="--dot:${c}" title="${title}" onclick="setSkin('${k}')"></button>`).join("");
+  const cur = document.documentElement.getAttribute("data-skin") || "classic";
+  $$(".skin-dot[data-skin]").forEach(d => d.classList.toggle("active", d.dataset.skin === cur));
+}
 (function initTheme() {
   applyMode(document.documentElement.getAttribute("data-mode") === "dark" ? "dark" : "light");
   applySkin(document.documentElement.getAttribute("data-skin") || "classic");
 })();
+renderUcSkins();
 function toast(msg, type="") {
   const el = document.createElement("div");
   el.className = "toast " + type;
@@ -1184,6 +1347,7 @@ function switchTab(id) {
   $$(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.tab === id));
   const title = {
     "tab-chat":    "对话购物 · 自然语言驱动全流程",
+    "tab-list":    "购物清单 · 想买先记下，随时开聊",
     "tab-profile": "用户中心 · 账户、偏好与购物档案",
     "tab-orders":  "订单 & 物流 · 实时跟踪售后进度",
     "tab-rec":     "TOP3 推荐 · 多维度打分横评",
@@ -1191,8 +1355,12 @@ function switchTab(id) {
   }[id] || "";
   $("#topbar-title").textContent = title;
 
+  const stb = $("#session-toggle-btn");
+  if (stb) stb.style.display = id === "tab-chat" ? "inline-flex" : "none";
+
   if (id === "tab-profile") { loadProfile(); loadUserCenter(); }
   if (id === "tab-orders")  loadOrders();
+  if (id === "tab-list")    loadList();
   if (id === "tab-api")     { loadApiKeyStatus(); loadLoginStates(); }
 }
 
@@ -1210,7 +1378,7 @@ $("#welcome-bubble").innerHTML = renderMarkdown(WELCOME_TEXT);
 
 /* 极简 markdown 渲染：支持 **加粗**、`code`、列表、###标题、--- */
 function renderMarkdown(text) {
-  let t = String(text || "").replace(/[<>&]/g, m => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[m]));
+  let t = String(text || "").replace(/\r\n?/g, "\n").replace(/[<>&]/g, m => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[m]));
   // 占位保护：含 URL/结构化 HTML 的片段先入暂存区，避免被后续语法二次加工
   const _stash = [];
   const keep = html => { _stash.push(html); return "\x00" + (_stash.length - 1) + "\x00"; };
@@ -1232,24 +1400,24 @@ function renderMarkdown(text) {
     const core = url.slice(0, url.length - trail.length);
     return keep(mdLink(core, core)) + trail;
   });
-  // 无序列表
-  t = t.replace(/(?:^|\n)((?:\s*[-*]\s+.+\n?)+)/g, (m, block) => {
+  // 无序列表（[ \t]* 而非 \s*：避免吞掉列表前的空行，破坏段落切分）
+  t = t.replace(/(?:^|\n)((?:[ \t]*[-*][ \t]+.+\n?)+)/g, (m, block) => {
     const items = block.trim().split(/\n/).map(l => {
-      const s = l.replace(/^\s*[-*]\s+/, "");
+      const s = l.replace(/^[ \t]*[-*][ \t]+/, "");
       return "<li>" + s + "</li>";
     }).join("");
-    return "\n<ul>" + items + "</ul>";
+    return "\n<ul>" + items + "</ul>\n";
   });
   // 有序列表
-  t = t.replace(/(?:^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, (m, block) => {
+  t = t.replace(/(?:^|\n)((?:[ \t]*\d+\.[ \t]+.+\n?)+)/g, (m, block) => {
     const items = block.trim().split(/\n/).map(l => {
-      const s = l.replace(/^\s*\d+\.\s+/, "");
+      const s = l.replace(/^[ \t]*\d+\.[ \t]+/, "");
       return "<li>" + s + "</li>";
     }).join("");
-    return "\n<ol>" + items + "</ol>";
+    return "\n<ol>" + items + "</ol>\n";
   });
-  // 表格
-  t = t.replace(/(?:^|\n)((?:\|.+?\|\n)+)/g, (m, block) => {
+  // 表格（末行 \n 可选：最后一行无换行符也要能收进表格）
+  t = t.replace(/(?:^|\n)((?:\|.+\|\n?)+)/g, (m, block) => {
     const rows = block.trim().split(/\n/).filter(r => /^\|.+\|$/.test(r));
     if (rows.length < 2) return m;
     let header = null, body = [];
@@ -1269,9 +1437,22 @@ function renderMarkdown(text) {
       "</table>";
     return "\n" + html + "\n";
   });
-  t = t.replace(/\n{2,}/g, "</p><p>");
+  /* 分段收尾：空行切段，块级段（标题/列表/表格/分隔线）保持原样不包 <p>，
+     普通段包 <p> 并把段内单换行转 <br>；由渲染器统一接管换行，
+     气泡 white-space 保持 normal，避免 pre-wrap 把源文本换行硬折成断句 */
+  const BLOCK_START = /^<(h\d|ul|ol|table|hr|blockquote|pre)[\s>]/;
+  t = t.split(/\n{2,}/).map(seg => {
+    const s = seg.trim();
+    if (!s) return "";
+    if (BLOCK_START.test(s)) return s;
+    return "<p>" + s.replace(/\n/g, "<br>") + "</p>";
+  }).join("");
+  // 恢复暂存的链接/图片/代码
   t = t.replace(/\x00(\d+)\x00/g, (m, i) => _stash[+i]);
-  t = "<p>" + t + "</p>";
+  // 清理贴着块级标签的换行/br 残留，避免标题、列表上下出现多余空隙
+  t = t.replace(/(?:<br>|\n)+(?=<\/?(?:h\d|ul|ol|li|table|thead|tbody|tr|hr|p)[\s>])/g, "");
+  t = t.replace(/(<\/(?:h\d|ul|ol|table|hr|p)>)\s*(?:<br>|\n)+/g, "$1");
+  t = t.replace(/<p>\s*<\/p>/g, "");
   return t;
 }
 function mdLink(href, label) {
@@ -1284,17 +1465,31 @@ function stripEmojiChars(s) {
   return String(s || "").replace(/[\p{Extended_Pictographic}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}\u{2139}]+[ \t]*/gu, "");
 }
 
-function appendMsg(role, htmlText) {
+/* 聊天区滚底：instant=true 用于历史恢复等需要跳过的场景，平时平滑滚动 */
+function scrollChat(instant) {
+  const wrap = $("#chat-messages");
+  wrap.scrollTo({ top: wrap.scrollHeight, behavior: instant ? "auto" : "smooth" });
+}
+
+function appendMsg(role, htmlText, opts = {}) {
   // AI 消息净化：剥离 emoji 图标（红线：AI 消息零 emoji；顺带兜底历史会话数据里的旧 emoji）
   if (role === "ai") htmlText = stripEmojiChars(htmlText);
   const wrap = $("#chat-messages");
   const el = document.createElement("div");
   el.className = "chat-msg " + role;
+  if (opts.instant) el.style.animation = "none";
   el.innerHTML =
     `<div class="avatar">${role === "user" ? '<span class="material-symbols-outlined">person</span>' : '<span class="material-symbols-outlined">smart_toy</span>'}</div>` +
     `<div class="chat-bubble">${htmlText}</div>`;
   wrap.appendChild(el);
-  wrap.scrollTop = wrap.scrollHeight;
+  // 图片异步加载会撑高内容：加载完成后若视口仍在底部附近，补一次滚动，避免最后一条消息下半截留在屏外
+  el.querySelectorAll("img.md-img").forEach(img => {
+    if (img.complete) return;
+    img.addEventListener("load", () => {
+      if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 320) scrollChat(false);
+    }, { once: true });
+  });
+  scrollChat(!!opts.instant);
   return el;
 }
 function appendChips(options) {
@@ -1306,7 +1501,7 @@ function appendChips(options) {
     `<div class="chat-bubble chat-chips">${options.map(o =>
       `<button class="chip" onclick="sendMsg('${String(o).replace(/'/g, "\\'")}')">${escapeHtml(o)}</button>`).join("")}</div>`;
   wrap.appendChild(el);
-  wrap.scrollTop = wrap.scrollHeight;
+  scrollChat(false);
 }
 function appendTyping() {
   const wrap = $("#chat-messages");
@@ -1317,9 +1512,10 @@ function appendTyping() {
     `<div class="avatar"><span class="material-symbols-outlined">smart_toy</span></div>` +
     `<div class="chat-bubble" style="padding:10px 12px;"><div class="typing"><span></span><span></span><span></span></div></div>`;
   wrap.appendChild(el);
-  wrap.scrollTop = wrap.scrollHeight;
+  scrollChat(false);
 }
 function removeTyping() {
+  // 瞬时移除：新消息自带 fadeUp + 平滑滚底，若这里做淡出，收起时视口会被夹回底部产生二次跳变
   const t = $("#typing-indicator");
   if (t) t.remove();
 }
@@ -1377,7 +1573,7 @@ async function sendMsg(text) {
   if (imgs.length) {
     userHtml += '<div style="display:flex;gap:6px;margin-top:6px;">';
     for (const uri of imgs) {
-      userHtml += `<img src="${uri}" style="width:48px;height:48px;border-radius:6px;object-fit:cover;border:1px solid #eee;">`;
+      userHtml += `<img src="${uri}" style="width:48px;height:48px;border-radius:6px;object-fit:cover;border:1px solid var(--border);">`;
     }
     userHtml += '</div>';
   }
@@ -1443,10 +1639,20 @@ setTimeout(() => $("#chat-input").focus(), 400);
 let CURRENT_SESSION_ID = localStorage.getItem("sa_active_session") || "";
 let sessionListCache = [];
 
-function toggleSessionSide() {
+function toggleSessionSide(force) {
   const el = $("#chat-layout");
-  if (el) el.classList.toggle("show-side");
+  if (!el) return;
+  const open = typeof force === "boolean" ? force : !el.classList.contains("side-open");
+  el.classList.toggle("side-open", open);
+  try { localStorage.setItem("sa_side_open", open ? "1" : "0"); } catch (e) {}
+  const tb = $("#session-toggle-btn");
+  if (tb) tb.classList.toggle("active", open);
 }
+(function initSessionSide() {
+  let open = false;
+  try { open = localStorage.getItem("sa_side_open") === "1"; } catch (e) {}
+  toggleSessionSide(open);
+})();
 
 /* =============== 用户中心：账户信息 + 界面/行为偏好 =============== */
 const UC_COLORS = [["classic","#1890ff","经典蓝"],["sakura","#c06c84","樱花粉"],
@@ -1573,9 +1779,9 @@ async function renderSessionMessages(id) {
     if (!r || !r.ok) { resetChatArea(); return; }
     const wrap = $("#chat-messages");
     wrap.innerHTML = "";
-    appendMsg("ai", renderMarkdown(WELCOME_TEXT));
+    appendMsg("ai", renderMarkdown(WELCOME_TEXT), { instant: true });
     (r.messages || []).forEach(m => {
-      appendMsg(m.role === "user" ? "user" : "ai", renderMarkdown(m.content || ""));
+      appendMsg(m.role === "user" ? "user" : "ai", renderMarkdown(m.content || ""), { instant: true });
     });
   } catch (e) { console.error("renderSessionMessages", e); }
 }
@@ -1692,6 +1898,9 @@ function updateBadges(snap) {
     if (cn > 0) { cbadge.style.display = ""; cbadge.textContent = cn; } else { cbadge.style.display = "none"; }
   }
 
+  // 购物清单徽标（待处理数）
+  updateListBadge(snap.list_pending || 0);
+
   const prof = snap.profile || {};
   const filled = Object.values(prof).filter(v => v && String(v).trim()).length;
   const badge2 = $("#profile-badge");
@@ -1768,6 +1977,72 @@ async function cartCheckPrices(){
   if((r.alerts||[]).length) toast("检测到降价提醒，见上方");
   else toast("暂无降价提醒（真实抓取若被拦截则跳过该项）");
 }
+/* =============== 购物清单（购买前需求池） =============== */
+let listCache = [];
+
+async function loadList(){
+  const r = await api("/api/shopping_list","GET");
+  renderList(r.items||[]);
+}
+
+function renderList(items){
+  listCache = items;
+  const pend = $("#list-pending"), done = $("#list-done");
+  pend.innerHTML = ""; done.innerHTML = "";
+  let np = 0, nd = 0;
+  items.forEach((it, idx) => {
+    const i = idx + 1;   // 编号=存储顺序，与对话指令「第N项」一致
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);";
+    row.innerHTML = `
+      <div style="flex:1;min-width:0;">
+        <div class="lc" style="${it.done ? "text-decoration:line-through;opacity:.6;" : ""}"></div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px;">#${i} · ${it.created_at}</div>
+      </div>
+      <button class="btn sm" onclick="goRecommend(${i})"><span class="material-symbols-outlined">forum</span> 去推荐</button>
+      <button class="btn sm" onclick="listToggle(${i})">${it.done ? "取消完成" : "完成"}</button>
+      <button class="btn sm danger" onclick="listRemove(${i})">移除</button>`;
+    row.querySelector(".lc").textContent = it.content;   // 用户输入走 textContent 防注入
+    (it.done ? done : pend).appendChild(row);
+    it.done ? nd++ : np++;
+  });
+  if(!np) pend.innerHTML = '<div class="empty"><span class="big"><span class="material-symbols-outlined">checklist</span></span>暂无待处理需求 — 想到就记下来。</div>';
+  $("#list-done-count").textContent = nd;
+  $("#list-done-wrap").style.display = nd ? "" : "none";
+}
+
+async function listAction(action, extra={}){
+  const r = await api("/api/shopping_list","POST",Object.assign({action}, extra));
+  if(r.ok){ renderList(r.items||[]); updateListBadge(r.pending_count||0); }
+}
+
+function listAdd(){
+  const v = ($("#list-input").value||"").trim();
+  if(!v) return;
+  listAction("add",{content:v});
+  $("#list-input").value = "";
+}
+function listRemove(i){ listAction("remove",{index:i}); }
+function listToggle(i){ listAction("toggle_done",{index:i}); }
+function listClearDone(){ if(confirm("确认清空全部已完成条目？")) listAction("clear_done"); }
+function listToggleDoneView(){ const d = $("#list-done"); d.style.display = d.style.display === "none" ? "" : "none"; }
+
+// 去推荐：填入对话输入框并聚焦，不自动发送（抓取克制：由用户确认后再发）
+function goRecommend(i){
+  const it = listCache[i-1];
+  if(!it) return;
+  $("#chat-input").value = it.content;
+  switchTab("tab-chat");
+  $("#chat-input").focus();
+}
+
+function updateListBadge(n){
+  const b = $("#list-badge");
+  if(!b) return;
+  b.textContent = n;
+  b.style.display = n > 0 ? "" : "none";
+}
+
 /* 切到购物车tab时自动加载 */
 const _origSwitchTab = switchTab;
 switchTab = function(id){ _origSwitchTab(id); if(id==="tab-cart") loadCart(); };
@@ -1851,17 +2126,17 @@ function loginStatusPill(status){
   return `<span class="tag-pill ${cls}"><span class="dot"></span>${status}</span>`;
 }
 
-function renderLoginStates(states){
-  const box = $("#login-states");
+function renderLoginStates(states, boxId = "login-states"){
+  const box = document.getElementById(boxId);
   if(!box) return;
   box.innerHTML = states.map(s => {
     const busy = LOGIN_BUSY.has(s.status);
     const btns = busy
       ? `<button class="btn" disabled>${s.status === "登录中" ? "登录中（关闭登录窗口即可取消）" : s.status + "，请稍候…"}</button>`
-      : `<button class="btn" onclick="loginAction('check','${s.platform}')">立即检测</button>
-         <button class="btn" onclick="loginAction('login','${s.platform}')">扫码登录</button>` +
+      : `<button class="btn" onclick="loginAction('check','${s.platform}','${boxId}')">立即检测</button>
+         <button class="btn" onclick="loginAction('login','${s.platform}','${boxId}')">扫码登录</button>` +
         (s.status === "已登录"
-          ? `<button class="btn danger" onclick="loginAction('clear','${s.platform}')">清除登录态</button>` : "");
+          ? `<button class="btn danger" onclick="loginAction('clear','${s.platform}','${boxId}')">清除登录态</button>` : "");
     const meta = [s.checked_at, s.source].filter(Boolean).join(" · ") || "从未检测";
     return `
       <div style="background:var(--bg);border:1px dashed var(--border);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -1874,15 +2149,15 @@ function renderLoginStates(states){
   }).join("");
 }
 
-async function loadLoginStates(){
+async function loadLoginStates(boxId = "login-states"){
   const r = await api("/api/login","GET");
-  if(r && r.ok) renderLoginStates(r.states || []);
+  if(r && r.ok) renderLoginStates(r.states || [], boxId);
   const busy = ((r && r.states) || []).some(s => LOGIN_BUSY.has(s.status));
   if(busy && !_loginPollTimer){
     _loginPollTimer = setInterval(async () => {
       const rr = await api("/api/login","GET");
       if(!(rr && rr.ok)) return;
-      renderLoginStates(rr.states || []);
+      renderLoginStates(rr.states || [], boxId);
       if(!((rr.states || []).some(s => LOGIN_BUSY.has(s.status)))){
         clearInterval(_loginPollTimer); _loginPollTimer = null;
         toast("登录态任务已结束","ok");
@@ -1891,7 +2166,7 @@ async function loadLoginStates(){
   }
 }
 
-async function loginAction(action, platform){
+async function loginAction(action, platform, boxId = "login-states"){
   if(action === "clear" && !confirm(`确认清除 ${platform} 的登录态吗？清除后需要重新扫码登录。`)) return;
   toast(action === "check" ? `正在打开浏览器检测 ${platform} 登录态（约 5-25 秒）…`
       : action === "login" ? "正在弹出浏览器，请在窗口内扫码/手动登录（最长等 3 分钟，关闭窗口即可取消）…"
@@ -1900,8 +2175,8 @@ async function loginAction(action, platform){
   if(!r){ toast("请求失败","err"); return; }
   if(!r.ok){ toast(r.message || "操作失败","warn"); }
   else if(action === "check"){ toast(r.message || `${platform}：${r.status}`,"ok"); }
-  renderLoginStates(r.states || []);
-  loadLoginStates();   // 若进入 登录中/清理中，自动启动轮询
+  renderLoginStates(r.states || [], boxId);
+  loadLoginStates(boxId);   // 若进入 登录中/清理中，自动启动轮询
 }
 
 
@@ -2209,7 +2484,7 @@ function maybeOnboard(){
 function showOnboardStep(n){
   _obStep = n;
   $("#onboard-mask").style.display = "grid";
-  $("#onboard-steps").innerHTML = [1,2,3].map(i => `<span class="${i<=n?"on":""}"></span>`).join("");
+  $("#onboard-steps").innerHTML = [1,2,3,4].map(i => `<span class="${i<=n?"on":""}"></span>`).join("");
   const body = $("#onboard-body");
   if(n === 1){
     body.innerHTML = `
@@ -2237,12 +2512,24 @@ function showOnboardStep(n){
       `<button class="skin-dot${k===color?" active":""}" style="--dot:${c}" title="${title}" onclick="obPickColor('${k}')"></button>`).join("");
     $("#ob-nickname").value = (_uc && _uc.nickname) || "";
     $("#onboard-next").textContent = "保存并下一步";
+  } else if(n === 3){
+    body.innerHTML = `
+      <h3 style="margin-bottom:8px;">配置一个购物网站账户（可选，推荐）</h3>
+      <div class="help" style="line-height:1.9;margin-bottom:12px;">
+        配置京东 / 淘宝登录态后，抓取到的商品信息更完整（价格、库存与优惠更准）。<br>
+        点「扫码登录」会弹出浏览器窗口，<b>请在窗口内自行扫码，程序绝不过手账号密码</b>。<br>
+        现在没空也可以跳过，之后随时在「配置库」里完成。
+      </div>
+      <div id="ob-login-states" style="display:flex;flex-direction:column;gap:10px;"></div>`;
+    $("#onboard-next").textContent = "下一步";
+    loadLoginStates("ob-login-states");
   } else {
     body.innerHTML = `
       <h3 style="margin-bottom:8px;">一切就绪</h3>
       <div class="help" style="line-height:2.1;">
         试试对助手说：<b>「买一条夏天的连衣裙，预算200以内」</b><br>
-        随时可在「用户中心」调整字号、字体、人群交互风格、浏览器弹出方式等偏好。
+        随时可在「用户中心」调整字号、字体、人群交互风格、浏览器弹出方式等偏好；<br>
+        在「配置库」可补充网站登录态与 AI Key。
       </div>`;
     $("#onboard-next").textContent = "开始逛逛";
   }
@@ -2264,9 +2551,10 @@ async function onboardNext(){
       if($("#uc-nickname")) $("#uc-nickname").value = _uc.nickname || "";
     }
   }
-  if(_obStep >= 3){
+  if(_obStep >= 4){
     try{ localStorage.setItem("sa_onboarded","1"); }catch(e){}
     $("#onboard-mask").style.display = "none";
+    loadLoginStates();   // 引导期间若发起过扫码，把最新状态同步回配置库面板
     toast("开始体验吧","ok");
     return;
   }
@@ -2275,6 +2563,7 @@ async function onboardNext(){
 function onboardSkip(){
   try{ localStorage.setItem("sa_onboarded","1"); }catch(e){}
   $("#onboard-mask").style.display = "none";
+  loadLoginStates();
 }
 
 /* =============== 启动初始化 =============== */

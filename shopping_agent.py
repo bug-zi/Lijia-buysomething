@@ -22,6 +22,7 @@ from recommender import Recommender
 from order_manager import OrderManager, Order, LogisticsEvent
 from request_parser import RequestParser, ShoppingRequest
 from virtual_cart import VirtualCart
+from shopping_list import shopping_list
 
 # 视觉多模态分析（可选，未配置 API Key 时回退提示）
 try:
@@ -57,6 +58,7 @@ class ChatSession:
         self.orders = OrderManager(self.profile)
         self.parser = RequestParser()
         self.cart = VirtualCart()
+        self.shopping_list = shopping_list   # 购物清单单例（跨会话共享的需求池）
         # 会话上下文
         self._collecting_profile = False     # 是否处于分批建档模式
         self._last_request: Optional[ShoppingRequest] = None  # 上一次搜索请求（用于增量调整）
@@ -641,6 +643,23 @@ class ChatSession:
                  "装浏览器驱动", "安装playwright", "安装 playwright",
                  "装playwright", "装 playwright"):
             return self._install_browser_driver()
+
+        # --- 购物清单指令 ---
+        # 必须在购物车指令块之前匹配：购物车的「移除第N项」正则会误吞「从清单移除第N项」
+        m = re.match(r"记到清单[:：]\s*(.+)", t)
+        if m:
+            return self.shopping_list.add(m.group(1).strip())
+        if t in ("我的清单", "展示我的清单", "查看清单", "购物清单", "我的购物清单"):
+            return self.shopping_list.list_text()
+        m = re.search(r"从清单移除\s*第?\s*(\d+)\s*项?", t)
+        if m:
+            return self.shopping_list.remove(int(m.group(1)))
+        m = re.search(r"(?:取消完成|恢复)\s*第?\s*(\d+)\s*项?", t)
+        if m:
+            return self.shopping_list.toggle_done(int(m.group(1)))
+        m = re.search(r"(?:标记完成|完成)\s*第?\s*(\d+)\s*项?", t)
+        if m:
+            return self.shopping_list.toggle_done(int(m.group(1)))
 
         # --- 虚拟购物车指令 ---
         # 加入购物车：把第N款加入购物车 / 加入购物车第N款 / 收藏第N款

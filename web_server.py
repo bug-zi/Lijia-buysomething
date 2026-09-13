@@ -49,6 +49,7 @@ from product_searcher import save_scrape_cache  # noqa: E402  Trae 浏览器桥�
 import config_store  # noqa: E402  配置库：网站登录态管理
 import session_store  # noqa: E402  会话持久化（chat_sessions.json）
 import user_center  # noqa: E402  用户中心：账户信息与偏好
+from shopping_list import shopping_list  # noqa: E402  购物清单单例（购买前需求池）
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
@@ -171,6 +172,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {
                 "ok": True, "name": "ShoppingAgent Web", "version": "1.0",
                 "cart_count": snap.get("cart_count", 0),
+                "list_pending": shopping_list.pending_count(),
                 "data_source_blocked": snap.get("data_source_blocked", False),
             })
             return
@@ -197,6 +199,13 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/cart":
             self._api_cart_get()
+            return
+        if path == "/api/shopping_list":
+            json_response(self, 200, {
+                "ok": True, "items": shopping_list.to_list(),
+                "pending_count": shopping_list.pending_count(),
+                "list_text": shopping_list.list_text(),
+            })
             return
         if path.startswith("/api/logistics/"):
             oid = unquote(path[len("/api/logistics/"):])
@@ -251,6 +260,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/cart":
             self._api_cart_post(body)
+            return
+        if path == "/api/shopping_list":
+            self._api_shopping_list_post(body)
             return
         if path == "/api/scrape":
             self._api_scrape_post(body)
@@ -630,6 +642,37 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             text = cs.cart.list_text()
         json_response(self, 200, {"ok": True, "response": resp, "cart": items,
                                   "list_text": text, "cart_count": len(items)})
+
+    def _api_shopping_list_post(self, body: dict):
+        """
+        action:
+          - add         {content}
+          - remove      {index}
+          - toggle_done {index}
+          - clear_done
+          - clear
+        """
+        action = str(body.get("action") or "").strip().lower()
+        with SESSION_LOCK:
+            if action == "add":
+                resp = shopping_list.add(str(body.get("content") or ""))
+            elif action == "remove":
+                resp = shopping_list.remove(int(body.get("index") or 0))
+            elif action == "toggle_done":
+                resp = shopping_list.toggle_done(int(body.get("index") or 0))
+            elif action == "clear_done":
+                resp = shopping_list.clear_done()
+            elif action == "clear":
+                resp = shopping_list.clear()
+            else:
+                resp = ""
+            items = shopping_list.to_list()
+            pending = shopping_list.pending_count()
+        if not resp:
+            json_response(self, 200, {"ok": False, "error": f"未知操作：{action}"})
+            return
+        json_response(self, 200, {"ok": True, "response": resp,
+                                  "items": items, "pending_count": pending})
 
     # ---------- Trae 浏览器桥接：注入真实抓取缓存 ----------
     def _api_scrape_post(self, body: dict):
