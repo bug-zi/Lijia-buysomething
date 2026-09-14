@@ -21,13 +21,16 @@ API:
     GET  /api/login            网站登录态列表（配置库）
     POST /api/login            body: {"action":"check|login|clear","platform":"京东|淘宝/天猫"}
     GET  /api/usercenter       用户中心（账户信息 + 界面/行为偏好）
-    POST /api/usercenter       body: {"nickname?":"...","avatar_color?":"...","prefs?":{...}}
+    POST /api/usercenter       body: {"nickname?":"...","avatar_color?":"...","gender?":"male|female","avatar?":"/resource/... 或空串清除","avatar_data?":"data:image/... 上传头像"}
     GET  /                    托管 index.html
 """
 
 import os
 import sys
 import json
+import base64
+import re
+import time
 import threading
 import webbrowser
 from typing import Dict, Optional, Tuple
@@ -59,9 +62,13 @@ RESOURCE_DIR = os.path.join(BASE_DIR, "resource")
 # 每个会话一个 ChatSession 实例（7 个会话态字段互相独立，随聊天持久化到 chat_sessions.json）；
 # profile/orders/cart 各模块自带 JSON 持久化，属全局共享——所有会话实例共用同一组管理器，保持原单会话语义。
 # ACTIVE_SESSION_ID：当前激活会话（老前端/不带 session_id 的请求都落到它）。
-SESSION_LOCK = threading.Lock()          # 全局粗锁：沿用原单会话的并发模型
+SESSION_LOCK = threading.Lock()          # 元锁：只保护 SESSIONS/ACTIVE_SESSION_ID 与锁表（毫秒级持有，绝不裹真实抓取）
 SESSIONS: Dict[str, ChatSession] = {}    # 内存中的会话实例（按需懒加载/恢复）
 ACTIVE_SESSION_ID: Optional[str] = None  # 启动时从 chat_sessions.json 恢复
+_SESSION_LOCKS: Dict[str, threading.Lock] = {}  # 每会话锁：串行化同一会话 ChatSession 的长耗时操作（互不影响其他会话）
+_BROWSER_LOCK = threading.Lock()         # 全局浏览器锁：真实抓取共享同一浏览器 profile，必须全局串行
+_CANCEL_FLAGS: Dict[str, bool] = {}      # 取消发送登记：request_id → True（被原请求消费即删）
+_CANCEL_LOCK = threading.Lock()
 
 # 全局共享的管理器宿主：各会话实例只借用它的 profile/orders/cart（三模块自带 JSON 持久化）
 _SHARED = ChatSession()
@@ -108,6 +115,22 @@ def _chat(session_id: str = "") -> Tuple[str, ChatSession]:
             cs.restore_state(meta["state"])
         SESSIONS[sid] = cs
     return sid, cs
+
+
+def _lock_for(sid: str) -> threading.Lock:
+    """取会话专属锁（须先用元锁注册会话）：同一会话的聊天/搜索串行，不同会话互不阻塞"""
+    with SESSION_LOCK:
+        lk = _SESSION_LOCKS.get(sid)
+        if lk is None:
+            lk = threading.Lock()
+            _SESSION_LOCKS[sid] = lk
+        return lk
+
+
+def _consume_cancel(req_id: str) -> bool:
+    """取走在途聊天请求的取消标记（取后即清）"""
+    with _CANCEL_LOCK:
+        return bool(_CANCEL_FLAGS.pop(req_id, False))
 
 
 def json_response(handler, status: int, payload: dict):
@@ -229,6 +252,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "/api/chat":
             self._api_chat(body)
             return
+        if path == "/api/chat_cancel":
+            self._api_chat_cancel(body)
+            return
         if path == "/api/sessions":
             self._api_sessions_post(body)
             return
@@ -256,7 +282,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             self._api_login_post(body)
             return
         if path == "/api/usercenter":
-            json_response(self, 200, {"ok": True, "user": user_center.save(body)})
+            self._api_usercenter_post(body)
             return
         if path == "/api/cart":
             self._api_cart_post(body)
@@ -298,6 +324,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             json_response(self, 400, {"ok": False, "error": "message不能为空"})
             return
         req_sid = str(body.get("session_id") or "").strip()
+        req_id = str(body.get("request_id") or "").strip()   # 前端生成；用于「取消发送」登记
         with SESSION_LOCK:
             sid, cs = _chat(req_sid)
             # 自动标题：会话首条消息取用户输入前 20 字（仅当还是默认标题）
@@ -305,36 +332,56 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             if meta is not None and not meta.get("messages") and \
                     (meta.get("title") or "") in ("", "新会话", "默认会话"):
                 session_store.rename_session(sid, msg[:20])
-            reply = cs.chat(msg)
-            # 澄清式问答的选项按钮（无则空数组，前端不渲染）
-            chips = cs.pop_chips()
-            # 额外返回状态快照，便于Web端其它Tab同步刷新
-            snap = cs.snapshot()
-            # 待确认预览（若处于pending）
-            pending_preview = None
-            if cs._pending_order is not None:
-                o = cs._pending_order
-                pending_preview = {
-                    "order_id": o.order_id,
-                    "product_name": o.product_name,
-                    "platform": o.platform,
-                    "seller": o.seller,
-                    "price": o.price,
-                    "final_price": o.final_price,
-                    "receiver": o.receiver,
-                    "phone": o.phone,
-                    "address": o.address,
-                    "rank": cs._pending_rank,
-                }
-            # 持久化：用户消息、AI 回复、会话状态（重启不丢）
-            session_store.append_message(sid, "user", msg)
-            session_store.append_message(sid, "ai", reply)
-            session_store.save_state(sid, cs.export_state())
+        # 真实抓取可能耗时数十秒：只持「会话锁+浏览器锁」，元锁已释放——
+        # 搜索期间新建/删除会话、看清单等轻操作照常响应（问题疑惑区第5轮）
+        with _lock_for(sid):
+            prev_state = cs.export_state()   # 取消回滚基线（聊天前的会话态快照）
+            cancelled = False
+            with _BROWSER_LOCK:
+                reply = cs.chat(msg)
+                # 澄清式问答的选项按钮（无则空数组，前端不渲染）
+                chips = cs.pop_chips()
+                # 澄清表单结构（维度追问表单化；无则 None，前端不渲染）
+                clarify_form = cs.pop_clarify_form()
+                # 额外返回状态快照，便于Web端其它Tab同步刷新
+                snap = cs.snapshot()
+                # 待确认预览（若处于pending）
+                pending_preview = None
+                if cs._pending_order is not None:
+                    o = cs._pending_order
+                    pending_preview = {
+                        "order_id": o.order_id,
+                        "product_name": o.product_name,
+                        "platform": o.platform,
+                        "seller": o.seller,
+                        "price": o.price,
+                        "final_price": o.final_price,
+                        "receiver": o.receiver,
+                        "phone": o.phone,
+                        "address": o.address,
+                        "rank": cs._pending_rank,
+                    }
+                cancelled = bool(req_id) and _consume_cancel(req_id)
+            if cancelled:
+                # 用户已取消：会话态整体回滚、消息不入对话历史（本轮响应前端也不会渲染）。
+                # 浏览器抓取本身无法凭空打断，本次动作自然结束后结果即被丢弃。
+                cs.restore_state(prev_state)
+                cs._last_chips = []
+                cs._last_clarify_form = None
+            else:
+                # 持久化：用户消息、AI 回复、会话状态（重启不丢；session_store 自带线程锁）
+                session_store.append_message(sid, "user", msg)
+                session_store.append_message(sid, "ai", reply)
+                session_store.save_state(sid, cs.export_state())
+        if cancelled:
+            json_response(self, 200, {"ok": False, "cancelled": True, "session_id": sid})
+            return
         json_response(self, 200, {
             "ok": True,
             "session_id": sid,
             "reply": reply,
             "chips": chips,
+            "clarify_form": clarify_form,
             "snapshot": snap,
             "pending_order": pending_preview,
         })
@@ -393,6 +440,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                 json_response(self, 404, {"ok": False, "error": "会话不存在"})
                 return
             SESSIONS.pop(sid, None)   # 释放内存实例
+            _SESSION_LOCKS.pop(sid, None)  # 回收会话锁
             # 删除的是激活会话时，session_store 已切到最近一个；这里同步并保证有可用会话
             ACTIVE_SESSION_ID = session_store.get_active_id()
             if not ACTIVE_SESSION_ID:
@@ -585,10 +633,12 @@ class ShoppingHandler(BaseHTTPRequestHandler):
     # ---------- 虚拟购物车 ----------
     def _api_cart_get(self):
         with SESSION_LOCK:
-            _sid, cs = _chat()
+            sid, cs = _chat()
+        with _lock_for(sid):
             items = cs.cart.to_list()
             text = cs.cart.list_text()
-            alerts = cs.cart.check_prices()  # 顺便触发监控检查
+            with _BROWSER_LOCK:
+                alerts = cs.cart.check_prices()  # 顺便触发监控检查（走浏览器，须全局串行）
         json_response(self, 200, {
             "ok": True, "cart": items, "list_text": text,
             "alerts": alerts, "cart_count": len(items),
@@ -729,16 +779,76 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             json_response(self, 400, {"ok": False, "error": "未提供有效的 data:image URI"})
             return
         req_sid = str(body.get("session_id") or "").strip()
+        req_id = str(body.get("request_id") or "").strip()
         with SESSION_LOCK:
             sid, cs = _chat(req_sid)
-            user_text = text or "（图片消息）"
-            reply = cs.chat_with_images(clean_images, text)
-            snap = cs.snapshot()
-            # 持久化：图片本体不入库（体积大），只存文字与回复
-            session_store.append_message(sid, "user", user_text)
-            session_store.append_message(sid, "ai", reply)
-            session_store.save_state(sid, cs.export_state())
+        with _lock_for(sid):
+            prev_state = cs.export_state()
+            cancelled = False
+            with _BROWSER_LOCK:
+                user_text = text or "（图片消息）"
+                reply = cs.chat_with_images(clean_images, text)
+                snap = cs.snapshot()
+                cancelled = bool(req_id) and _consume_cancel(req_id)
+            if cancelled:
+                cs.restore_state(prev_state)
+                cs._last_chips = []
+                cs._last_clarify_form = None
+            else:
+                # 持久化：图片本体不入库（体积大），只存文字与回复（session_store 自带线程锁）
+                session_store.append_message(sid, "user", user_text)
+                session_store.append_message(sid, "ai", reply)
+                session_store.save_state(sid, cs.export_state())
+        if cancelled:
+            json_response(self, 200, {"ok": False, "cancelled": True, "session_id": sid})
+            return
         json_response(self, 200, {"ok": True, "session_id": sid, "reply": reply, "snapshot": snap})
+
+    def _api_chat_cancel(self, body: dict):
+        """取消在途聊天/图片请求：仅登记取消标记，即时返回（元数据级操作）。
+        原请求跑完后后端自会丢弃结果、回滚会话态、消息不入历史——浏览器抓取本身无法凭空打断。"""
+        rid = str(body.get("request_id") or "").strip()
+        if not rid:
+            json_response(self, 400, {"ok": False, "error": "request_id不能为空"})
+            return
+        with _CANCEL_LOCK:
+            _CANCEL_FLAGS[rid] = True
+        json_response(self, 200, {"ok": True})
+
+    # ---------- 用户中心（含头像上传：data URI 落盘 resource/，路径入库长期有效） ----------
+    def _api_usercenter_post(self, body: dict):
+        avatar_data = body.pop("avatar_data", None)
+        if isinstance(avatar_data, str) and avatar_data.startswith("data:image"):
+            # 限制约 2MB 原图（base64 后 ~2.7M 字符）
+            if len(avatar_data) > 2_800_000:
+                json_response(self, 400, {"ok": False, "error": "头像图片过大（>2MB），请换一张或压缩后重试"})
+                return
+            try:
+                head, b64 = avatar_data.split(",", 1)
+                raw = base64.b64decode(b64)
+            except Exception:
+                json_response(self, 400, {"ok": False, "error": "头像数据解析失败"})
+                return
+            if len(raw) < 64:
+                json_response(self, 400, {"ok": False, "error": "头像数据无效"})
+                return
+            ext = "png"
+            m = re.search(r"data:image/(png|jpeg|jpg|webp|gif)", head)
+            if m:
+                ext = "jpg" if m.group(1) in ("jpeg", "jpg") else m.group(1)
+            fname = "user_avatar." + ext
+            try:
+                for old in os.listdir(RESOURCE_DIR):  # 清理旧扩展名头像，避免堆积
+                    if old.startswith("user_avatar.") and old != fname:
+                        os.remove(os.path.join(RESOURCE_DIR, old))
+                with open(os.path.join(RESOURCE_DIR, fname), "wb") as f:
+                    f.write(raw)
+            except OSError:
+                json_response(self, 500, {"ok": False, "error": "头像保存失败"})
+                return
+            # ?v= 时间戳做缓存穿透：覆盖上传后浏览器立即取新图
+            body["avatar"] = f"/resource/{fname}?v={int(time.time())}"
+        json_response(self, 200, {"ok": True, "user": user_center.save(body)})
 
     # ---------- 静态资源 ----------
     _RESOURCE_TYPES = {
@@ -748,7 +858,8 @@ class ShoppingHandler(BaseHTTPRequestHandler):
     }
 
     def _serve_resource(self, name: str):
-        fname = os.path.basename((name or "").strip())  # 只取文件名，防目录穿越
+        name = (name or "").split("?", 1)[0]  # 剥离 ?v= 缓存穿透参数
+        fname = os.path.basename(name.strip())  # 只取文件名，防目录穿越
         ext = os.path.splitext(fname)[1].lower()
         fp = os.path.join(RESOURCE_DIR, fname)
         if ext not in self._RESOURCE_TYPES or not os.path.isfile(fp):

@@ -69,6 +69,7 @@ class ChatSession:
         self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
         self._pending_clarify: Optional[Dict[str, Any]] = None  # 澄清问答状态 {"text":原需求,"stage":1|2}
         self._last_chips: List[str] = []                      # 最近一次追问的选项按钮（仅供前端渲染）
+        self._last_clarify_form: Optional[Dict[str, Any]] = None  # 最近一次澄清表单结构（仅供前端渲染）
         self._history: List[Dict[str, str]] = []              # 最近对话窗口（随会话态持久化，LLM 材料源）
 
     # ---------- 对外主入口 ----------
@@ -182,23 +183,20 @@ class ChatSession:
             if qa is not None:
                 return qa
 
-        # 4.3 信息不全，主动追问（不盲目搜索）；品类/关键词全缺或只有泛词 → 澄清式多轮问答
+        # 4.3 信息不全，主动追问（不盲目搜索）；品类/关键词全缺或只有泛词 → 澄清式品类问答
         #     泛词判定独立于 needs_clarify（LLM 脑补出「其他/东西」等关键词时 needs_clarify 可能为空）
         clarify_hint = ""
         if not req.target_rank and not req.category and junk_kw \
                 and not req.require_tags and not req.purpose:
             return self._start_clarify(text)
-        if req.needs_clarify and not req.target_rank:
-            # 多项关键信息缺失（场景/材质/预算等≥2）→ 主动提问，不直接搜
-            if len(req.needs_clarify) >= 2:
-                qs = "、".join(req.needs_clarify)
-                return (
-                    f"为了给你更精准的推荐，再确认一下：{qs}。\n"
-                    "你可以一次答完，例如：「夏天通勤，雪纺，预算300以内」。\n"
-                    "或直接回「随便/都行」我就按当前信息搜。"
-                )
-            if len(req.needs_clarify) == 1 and "预算" in req.needs_clarify[0]:
-                clarify_hint = "\n小提示：暂未识别到预算，我先给出推荐，不合适可以随时调整价格范围。"
+        # 维度完整度门控：有关键词/品类但缺≥2核心维度（预算/用途/品类关键属性）
+        # → 一轮式追问（可回「直接搜」跳过）；应答并入原需求后无论补全与否都搜，绝不无限盘问
+        missing = [] if req.target_rank else self.parser.missing_dims(req)
+        if len(missing) >= 2:
+            return self._start_dims_clarify(text, req)
+        if missing == ["budget"]:
+            # 仅缺预算不拦截，直搜+提示
+            clarify_hint = "\n小提示：暂未识别到预算，我先给出推荐，不合适可以随时调整价格范围。"
 
         # 4.4 推荐
         resp = self._flow_recommend(text, req)
@@ -261,6 +259,37 @@ class ChatSession:
             "连衣裙 / 运动鞋 / 耳机 / T恤 / 手机，也可以输入其他品类；回「随便推荐」就按当前信息直接搜。"
         )
 
+    def _start_dims_clarify(self, text: str, req: "ShoppingRequest") -> str:
+        """维度补全追问（一轮式可跳过）：缺≥2核心维度时出结构化表单（4~6问）。
+        网页端点选提交、每题可自填、末尾补充栏；纯文字消息保底供 CLI/无表单端使用。
+        应答并入原需求后无论补全与否直接搜。"""
+        form = self.parser.clarify_form(req)
+        if not form:
+            return self._flow_recommend(text, req)  # 理论不可达：调用方已保证 missing≥2
+        self._pending_clarify = {"text": text, "stage": 3}
+        self._last_clarify_form = form
+        self._last_chips = []   # 表单取代 chips，避免混排误触即发送
+        lines = [f"「{form['target']}」想帮你选得更准，确认几点"
+                 "（网页端已生成选项卡：点选后按「提交」，直接文字回复也可以）："]
+        n = 0
+        for q in form["questions"]:
+            n += 1
+            if q.get("options"):
+                tail = "，可多选" if q.get("multi") else ""
+                lines.append(f"{n}. {q['label']}？（{'/'.join(q['options'])}{tail}）")
+            else:
+                pre = "选填·" if q.get("optional") else ""
+                lines.append(f"{n}. {pre}{q['label']}？（可自行填写）")
+        lines.append("")
+        lines.append("一次答完即可，AI 没问到的可写在网页端补充栏。回「**直接搜**」就按当前信息搜。")
+        return "\n".join(lines)
+
+    def pop_clarify_form(self) -> Optional[Dict[str, Any]]:
+        """取走最近的澄清表单结构（供 Web 端渲染追问表单；取后即清）"""
+        f = self._last_clarify_form
+        self._last_clarify_form = None
+        return f
+
     def _flow_clarify_answer(self, answer: str) -> str:
         st = self._pending_clarify or {}
         base_text = str(st.get("text") or "")
@@ -295,11 +324,12 @@ class ChatSession:
             return f"没认出「{answer.strip()}」这个品类，我先按原需求「{base_text}」直接搜了。\n\n" + \
                 self._flow_recommend(base_text, req2)
 
-        # 第二轮：预算应答
+        # 第二轮（stage 2 预算应答）与第三轮（stage 3 维度补全应答）同为收尾：
+        # 应答并入原需求重解析后直接搜，一轮即止，无论信息补全与否
         merged = base_text if skipped else f"{base_text} {answer.strip()}"
         self._pending_clarify = None
         req = self.parser.parse(merged, profile=self.profile.get_all(),
-                                previous=self._last_request)
+                                previous=self._last_request, history=self._history)
         return self._flow_recommend(merged, req)
 
     def pop_chips(self) -> List[str]:

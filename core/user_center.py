@@ -22,11 +22,14 @@ FONT_SIZES = ("small", "medium", "large", "xlarge")
 FONT_FAMILIES = ("default", "song", "kai")
 POPUP_MODES = ("popup", "background")
 PERSONAS = ("default", "student", "office", "senior")
+GENDERS = ("male", "female")  # 性别仅用于挑选默认头像，未填写为空串
 
 DEFAULTS = {
     "nickname": "",
     "user_id": "",
     "avatar_color": "classic",
+    "gender": "",
+    "avatar": "",
     "prefs": {"font_size": "medium", "font_family": "default",
               "browser_popup": "popup", "persona": "default"},
 }
@@ -67,6 +70,14 @@ def _gen_uid() -> str:
     return "SA-" + "".join(random.choices(string.digits, k=8))
 
 
+def _safe_avatar(v) -> str:
+    """头像仅允许站内资源路径（/resource/xxx），防外链/注入/目录穿越"""
+    s = str(v or "").strip()
+    if s.startswith("/resource/") and ".." not in s and len(s) <= 200:
+        return s
+    return ""
+
+
 def load() -> dict:
     """读取用户中心数据（缺省补默认；user_id 首次访问自动生成并落盘）"""
     with _lock:
@@ -75,6 +86,8 @@ def load() -> dict:
             "nickname": str(data.get("nickname") or "").strip()[:20],
             "user_id": str(data.get("user_id") or "").strip() or _gen_uid(),
             "avatar_color": data.get("avatar_color") if data.get("avatar_color") in AVATAR_COLORS else DEFAULTS["avatar_color"],
+            "gender": data.get("gender") if data.get("gender") in GENDERS else "",
+            "avatar": _safe_avatar(data.get("avatar")),
             "prefs": _norm_prefs(data.get("prefs")),
         }
         if not str(data.get("user_id") or "").strip():
@@ -90,6 +103,10 @@ def save(patch: dict) -> dict:
             cur["nickname"] = str(patch.get("nickname") or "").strip()[:20]
         if patch.get("avatar_color") in AVATAR_COLORS:
             cur["avatar_color"] = patch["avatar_color"]
+        if "gender" in patch:
+            cur["gender"] = patch.get("gender") if patch.get("gender") in GENDERS else ""
+        if "avatar" in patch:
+            cur["avatar"] = _safe_avatar(patch.get("avatar"))
         prefs = patch.get("prefs")
         if isinstance(prefs, dict):
             for key, allowed in (("font_size", FONT_SIZES),
@@ -136,6 +153,16 @@ if __name__ == "__main__":
     assert u3["prefs"]["font_size"] == "small", u3
     assert u3["prefs"]["font_family"] == "default", u3
     assert u3["nickname"] == "小明", u3
+
+    u4 = save({"gender": "robot", "avatar": "javascript:alert(1)"})   # 非法性别/外链头像一律拒绝
+    assert u4["gender"] == "", u4
+    assert u4["avatar"] == "", u4
+    u5 = save({"gender": "female", "avatar": "/resource/user_avatar.png?v=1"})
+    assert u5["gender"] == "female", u5
+    assert u5["avatar"] == "/resource/user_avatar.png?v=1", u5
+    u6 = save({"gender": ""})                               # 清空性别不影响头像
+    assert u6["gender"] == "", u6
+    assert u6["avatar"] == "/resource/user_avatar.png?v=1", u6
 
     assert get_prefs()["font_size"] == "small"
     with open(UC_FILE, "r", encoding="utf-8") as f:

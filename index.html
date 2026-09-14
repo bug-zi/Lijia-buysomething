@@ -4,12 +4,17 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>全自动个人购物AI助手 — 网页版</title>
+<link rel="icon" type="image/png" href="/resource/icon.png" />
 <script>
 /* 首屏前恢复主题（避免深色模式闪白） */
 (function(){try{
   if(localStorage.getItem('sa_mode')==='dark')document.documentElement.setAttribute('data-mode','dark');
   var s=localStorage.getItem('sa_skin');
   document.documentElement.setAttribute('data-skin', s||'classic');
+  var _skins=['classic','sakura','forest','sunset'];
+  var _sk=_skins.indexOf(s)>=0?s:'classic';
+  var _fav=document.querySelector('link[rel="icon"]');
+  if(_fav)_fav.setAttribute('href','/resource/icon-'+_sk+'.png');
   var uc=null; try{uc=JSON.parse(localStorage.getItem('sa_uc')||'null')}catch(e){}
   if(uc){
     document.documentElement.setAttribute('data-fontsize', uc.font_size||'medium');
@@ -194,7 +199,15 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   display: grid; place-items: center;
   font-size: 20px;
   box-shadow: var(--primary-shadow);
+  overflow: hidden; flex-shrink: 0; position: relative;
 }
+.brand .logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+/* 主题素材随皮肤联动：icon/AI 头像按 data-skin 换对应色系版本 */
+.brand .logo img.tk { position: absolute; inset: 0; display: none; }
+[data-skin="classic"] .brand .logo img.tk-classic,
+[data-skin="sakura"]  .brand .logo img.tk-sakura,
+[data-skin="forest"]  .brand .logo img.tk-forest,
+[data-skin="sunset"]  .brand .logo img.tk-sunset { display: block; }
 .brand .title { font-size: 16px; font-weight: 700; line-height: 1.2; color: var(--text-1); }
 
 .nav { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
@@ -469,7 +482,9 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   width: 36px; height: 36px; border-radius: 12px;
   display: grid; place-items: center; flex-shrink: 0;
   font-size: 18px;
+  overflow: hidden;
 }
+.chat-msg .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
 .chat-msg.user { flex-direction: row-reverse; }
 .chat-msg.user .avatar { background: var(--user-bubble); color: #fff; box-shadow: var(--shadow-sm); }
 .chat-msg.ai   .avatar { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
@@ -714,6 +729,33 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .modal-close { float: right; background: none; border: none; font-size: 22px; color: var(--text-3); cursor: pointer; }
 .modal-close:hover { color: var(--danger); }
 
+/* 主题化确认/输入弹窗（居中，替代系统 confirm/prompt 样式） */
+.confirm-mask {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1200; backdrop-filter: blur(2px);
+}
+.confirm-mask.open { display: flex; }
+.confirm-box {
+  width: min(400px, 88vw);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 18px; box-shadow: var(--shadow-lg);
+  padding: 26px 26px 22px; text-align: center;
+  animation: confirm-pop .18s ease;
+}
+@keyframes confirm-pop { from { transform: scale(.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.confirm-icon {
+  width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-soft); color: var(--primary-dark);
+}
+.confirm-icon.danger { background: var(--danger-bg); color: var(--danger-t); }
+.confirm-icon .material-symbols-outlined { font-size: 28px; }
+.confirm-box h3 { margin-bottom: 8px; font-size: 17px; }
+.confirm-msg { color: var(--text-2); font-size: 13.5px; line-height: 1.6; margin-bottom: 16px; word-break: break-all; }
+.confirm-actions { display: flex; gap: 10px; justify-content: center; }
+.confirm-actions .btn { min-width: 96px; }
+
 /* ============== Tab 4: 推荐快捷 ============== */
 .rec-grid {
   display: grid; gap: 16px;
@@ -786,9 +828,37 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .chat-bubble a.md-link:hover { opacity: .85; }
 .chat-bubble.chat-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* 澄清表单（维度追问表单化：分题点选+每题可自填+补充栏+统一提交） */
+.clarify-form { display: flex; flex-direction: column; gap: 12px; min-width: min(520px, 100%); }
+.cf-q { display: flex; flex-direction: column; gap: 6px; }
+.cf-q-label { font-size: 13px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cf-badge { font-size: 11px; font-weight: 500; color: var(--text-3); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+.cf-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cf-opt.cf-on, .cf-opt.cf-on:hover { color: #fff; background: var(--primary); border-color: var(--primary); }
+.cf-input, .cf-note {
+  font-size: 13px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--text-1); outline: none; width: 100%; box-sizing: border-box;
+  font-family: inherit; resize: vertical;
+}
+.cf-input:focus, .cf-note:focus { border-color: var(--primary); }
+.cf-actions { display: flex; gap: 10px; margin-top: 2px; }
+.cf-submit { font-size: 13px; padding: 7px 18px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--primary); color: #fff; transition: all .18s ease; }
+.cf-submit:hover { background: var(--primary-dark); }
+.cf-skip { font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--border); color: var(--text-2); transition: all .18s ease; }
+.cf-skip:hover { color: var(--primary-dark); border-color: var(--primary); }
+.clarify-form[data-done="1"] { opacity: .55; pointer-events: none; }
+.cf-hint { font-size: 12px; color: var(--text-3); }
+
 /* 用户中心：头像 / 分段选择 / 字号字体偏好 */
 .uc-avatar { width:56px; height:56px; border-radius:50%; display:grid; place-items:center;
   font-size:22px; font-weight:700; color:#fff; flex-shrink:0; }
+.uc-avatar img { width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; }
+label.uc-avatar-wrap { cursor:pointer; position:relative; display:inline-block; border-radius:50%; }
+label.uc-avatar-wrap::after { content:""; position:absolute; inset:0; border-radius:50%;
+  box-shadow: inset 0 0 0 0 transparent; transition: box-shadow .18s ease; pointer-events:none; }
+label.uc-avatar-wrap:hover::after { box-shadow: inset 0 0 0 3px var(--primary); }
 .uc-avatar.classic { background:#1890ff; }
 .uc-avatar.sakura  { background:#c06c84; }
 .uc-avatar.forest  { background:#3d8a68; }
@@ -925,7 +995,12 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
   <!-- ============= 侧边导航 ============= -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo"><span class="material-symbols-outlined" style="font-size:22px">shopping_cart</span></div>
+      <div class="logo">
+        <img class="tk tk-classic" src="/resource/icon-classic.png" alt="logo">
+        <img class="tk tk-sakura" src="/resource/icon-sakura.png" alt="">
+        <img class="tk tk-forest" src="/resource/icon-forest.png" alt="">
+        <img class="tk tk-sunset" src="/resource/icon-sunset.png" alt="">
+      </div>
       <div class="title">购物AI助手</div>
     </div>
 
@@ -994,7 +1069,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div class="chat-wrap">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg ai">
-            <div class="avatar"><span class="material-symbols-outlined">smart_toy</span></div>
+            <div class="avatar"><img src="/resource/avatar_ai-classic.png" alt="AI"></div>
             <div class="chat-bubble" id="welcome-bubble"></div>
           </div>
         </div>
@@ -1046,17 +1121,24 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
           <span class="sub">仅本地展示与个性化使用，绝不含任何账号凭据；ID 自动生成</span>
         </div>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-          <div class="uc-avatar" id="uc-avatar">用</div>
+          <label class="uc-avatar-wrap" title="点击上传头像（仅保存在本机）">
+            <div class="uc-avatar" id="uc-avatar">用</div>
+            <input type="file" id="uc-avatar-input" accept="image/*" style="display:none" onchange="onUcAvatarSelect(event)">
+          </label>
           <div style="display:grid;gap:8px;flex:1;min-width:220px;">
             <input type="text" class="input" id="uc-nickname" maxlength="20" placeholder="用户名（昵称，最多 20 字）">
             <div class="help">ID：<code id="uc-uid">—</code>（自动生成；账号注册/云同步未来开放）</div>
           </div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span class="help" style="margin:0;">性别：</span>
+          <div class="seg" id="uc-gender"></div>
           <span class="help" style="margin:0;">头像色：</span>
           <div class="skin-dots" id="uc-colors"></div>
+          <button class="btn sm ghost" onclick="resetUcAvatar()" title="移除自定义头像，恢复按性别选择的系统默认头像">恢复默认头像</button>
           <button class="btn primary sm" onclick="saveUserCenter()"><span class="material-symbols-outlined">save</span> 保存账户</button>
         </div>
+        <div class="help" style="margin-top:8px;">点击头像或「上传头像」可自定义头像（与对话购物的图片上传方式一致，图片长期保存在本机 resource/ 目录）；未上传时按性别使用系统默认头像（男生/女生版各一张）。</div>
       </div>
 
       <div class="card">
@@ -1275,6 +1357,11 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
 <!-- toast -->
 <div class="toast-stack" id="toast-stack"></div>
 
+<!-- 主题化确认/输入弹窗 -->
+<div class="confirm-mask" id="confirm-mask" onclick="if(event.target===this)_finishConfirm(false)">
+  <div class="confirm-box" id="confirm-box"></div>
+</div>
+
 <!-- 新手引导（仅首次显示） -->
 <div class="onboard-mask" id="onboard-mask" style="display:none">
   <div class="onboard-card">
@@ -1294,6 +1381,21 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 /* ===== 主题切换：深色/浅色 + 皮肤色系（localStorage 持久化，首屏前已在 head 恢复） ===== */
+/* 主题素材随皮肤联动：icon/favicon/AI 头像按 data-skin 换对应色系版本（须先于 initTheme 定义） */
+const THEME_SKINS = ["classic", "sakura", "forest", "sunset"];
+function currentSkin() {
+  const s = document.documentElement.getAttribute("data-skin");
+  return THEME_SKINS.includes(s) ? s : "classic";
+}
+function aiAvatarSrc() { return "/resource/avatar_ai-" + currentSkin() + ".png"; }
+/* 换肤联动：favicon + 已渲染消息里的 AI 头像一并换色系（侧栏 logo 由纯 CSS 按 data-skin 切换） */
+function applyThemeAssets() {
+  const fav = document.querySelector('link[rel="icon"]');
+  if (fav) fav.href = "/resource/icon-" + currentSkin() + ".png";
+  document.querySelectorAll("#chat-messages .chat-msg.ai .avatar").forEach(av => {
+    av.innerHTML = '<img src="' + aiAvatarSrc() + '" alt="AI">';
+  });
+}
 function applyMode(mode) {
   document.documentElement.setAttribute("data-mode", mode);
   try { localStorage.setItem("sa_mode", mode); } catch (e) {}
@@ -1308,6 +1410,7 @@ function applySkin(skin) {
   document.documentElement.setAttribute("data-skin", skin);
   try { localStorage.setItem("sa_skin", skin); } catch (e) {}
   $$(".skin-dot[data-skin]").forEach(d => d.classList.toggle("active", d.dataset.skin === skin));
+  applyThemeAssets();
 }
 function setSkin(skin) { applySkin(skin); }
 /* 皮肤色系选择（用户中心 · 界面与行为偏好）：与 data-skin 一一对应，点选立即生效 */
@@ -1333,9 +1436,10 @@ function toast(msg, type="") {
   $("#toast-stack").appendChild(el);
   setTimeout(() => el.remove(), 2800);
 }
-async function api(url, method="GET", body=null) {
+async function api(url, method="GET", body=null, extra=null) {
   const opts = { method, headers: {"Content-Type":"application/json"} };
   if (body) opts.body = JSON.stringify(body);
+  if (extra) Object.assign(opts, extra);   // 如 { signal }（取消发送）
   const r = await fetch(url, opts);
   const data = await r.json();
   return data;
@@ -1471,6 +1575,24 @@ function scrollChat(instant) {
   wrap.scrollTo({ top: wrap.scrollHeight, behavior: instant ? "auto" : "smooth" });
 }
 
+/* 消息头像：AI 用生成形象（随皮肤换色系）；用户优先自定义头像，否则按性别用系统默认（男生/女生版），未填写回退图标 */
+function ucAvatarSrc() {
+  if (_uc && _uc.avatar) return _uc.avatar;
+  if (_uc && _uc.gender === "male") return "/resource/avatar_male.png";
+  if (_uc && _uc.gender === "female") return "/resource/avatar_female.png";
+  return "";
+}
+function avatarHtml(role) {
+  if (role !== "user") return '<div class="avatar"><img src="' + aiAvatarSrc() + '" alt="AI"></div>';
+  const src = ucAvatarSrc();
+  return '<div class="avatar">' + (src ? '<img src="' + escapeHtml(src) + '" alt="">' : '<span class="material-symbols-outlined">person</span>') + '</div>';
+}
+function refreshChatAvatars() {
+  const src = ucAvatarSrc();
+  const inner = src ? '<img src="' + escapeHtml(src) + '" alt="">' : '<span class="material-symbols-outlined">person</span>';
+  document.querySelectorAll("#chat-messages .chat-msg.user .avatar").forEach(av => { av.innerHTML = inner; });
+}
+
 function appendMsg(role, htmlText, opts = {}) {
   // AI 消息净化：剥离 emoji 图标（红线：AI 消息零 emoji；顺带兜底历史会话数据里的旧 emoji）
   if (role === "ai") htmlText = stripEmojiChars(htmlText);
@@ -1479,7 +1601,7 @@ function appendMsg(role, htmlText, opts = {}) {
   el.className = "chat-msg " + role;
   if (opts.instant) el.style.animation = "none";
   el.innerHTML =
-    `<div class="avatar">${role === "user" ? '<span class="material-symbols-outlined">person</span>' : '<span class="material-symbols-outlined">smart_toy</span>'}</div>` +
+    avatarHtml(role) +
     `<div class="chat-bubble">${htmlText}</div>`;
   wrap.appendChild(el);
   // 图片异步加载会撑高内容：加载完成后若视口仍在底部附近，补一次滚动，避免最后一条消息下半截留在屏外
@@ -1497,11 +1619,67 @@ function appendChips(options) {
   const el = document.createElement("div");
   el.className = "chat-msg ai";
   el.innerHTML =
-    `<div class="avatar"><span class="material-symbols-outlined">smart_toy</span></div>` +
+    avatarHtml("ai") +
     `<div class="chat-bubble chat-chips">${options.map(o =>
       `<button class="chip" onclick="sendMsg('${String(o).replace(/'/g, "\\'")}')">${escapeHtml(o)}</button>`).join("")}</div>`;
   wrap.appendChild(el);
   scrollChat(false);
+}
+// 澄清表单：分题点选（点选只勾选不提交；单选题自动互斥）、每题可自填、末尾补充栏、统一提交
+function appendClarifyForm(f) {
+  const wrap = $("#chat-messages");
+  const el = document.createElement("div");
+  el.className = "chat-msg ai";
+  const qs = (f.questions || []).map((q, i) => {
+    const badge = q.optional ? `<span class="cf-badge">选填</span>`
+      : (q.multi ? `<span class="cf-badge">可多选</span>` : "");
+    const opts = (q.options && q.options.length)
+      ? `<div class="cf-opts">${q.options.map(o =>
+          `<button type="button" class="chip cf-opt" data-multi="${q.multi ? 1 : 0}">${escapeHtml(o)}</button>`).join("")}</div>`
+      : "";
+    const ph = (q.options && q.options.length) ? "其他（自行填写）" : "在此填写";
+    return `<div class="cf-q"><div class="cf-q-label">${i + 1}. ${escapeHtml(q.label)}${badge}</div>${opts}
+      <input class="cf-input" type="text" placeholder="${ph}"></div>`;
+  }).join("");
+  el.innerHTML =
+    avatarHtml("ai") +
+    `<div class="chat-bubble clarify-form" id="clarify-form">
+      ${qs}
+      <div class="cf-q"><div class="cf-q-label">补充栏<span class="cf-badge">选填</span></div>
+        <textarea class="cf-note" rows="2" placeholder="AI 没问到的需求细节都可以写在这里"></textarea></div>
+      <div class="cf-actions">
+        <button type="button" class="cf-submit">提交并搜索</button>
+        <button type="button" class="cf-skip">直接搜</button>
+      </div>
+      <div class="cf-hint">点选只是勾选，可改可多选；确认后按「提交并搜索」，会自动合成一句话发给 AI。</div>
+    </div>`;
+  wrap.appendChild(el);
+  el.querySelectorAll(".cf-opt").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.multi === "0") {
+      b.parentElement.querySelectorAll(".cf-opt.cf-on").forEach(x => { if (x !== b) x.classList.remove("cf-on"); });
+    }
+    b.classList.toggle("cf-on");
+  }));
+  el.querySelector(".cf-submit").addEventListener("click", () => sendClarifyForm(el, false));
+  el.querySelector(".cf-skip").addEventListener("click", () => sendClarifyForm(el, true));
+  scrollChat(false);
+}
+function sendClarifyForm(el, skip) {
+  const form = el.querySelector(".clarify-form");
+  if (!form || form.dataset.done) return;
+  const parts = [];
+  if (!skip) {
+    form.querySelectorAll(".cf-q").forEach(qEl => {
+      const sel = [...qEl.querySelectorAll(".cf-opt.cf-on")].map(b => b.textContent.trim());
+      const inp = qEl.querySelector(".cf-input, .cf-note");
+      const other = inp && inp.value ? inp.value.trim() : "";
+      const seg = [...sel, other].filter(Boolean).join(" ");
+      if (seg) parts.push(seg);
+    });
+  }
+  form.dataset.done = "1";
+  form.querySelectorAll("button, input, textarea").forEach(x => { x.disabled = true; });
+  sendMsg(parts.length ? parts.join("，") : "直接搜");
 }
 function appendTyping() {
   const wrap = $("#chat-messages");
@@ -1509,7 +1687,7 @@ function appendTyping() {
   el.className = "chat-msg ai";
   el.id = "typing-indicator";
   el.innerHTML =
-    `<div class="avatar"><span class="material-symbols-outlined">smart_toy</span></div>` +
+    avatarHtml("ai") +
     `<div class="chat-bubble" style="padding:10px 12px;"><div class="typing"><span></span><span></span><span></span></div></div>`;
   wrap.appendChild(el);
   scrollChat(false);
@@ -1518,6 +1696,23 @@ function removeTyping() {
   // 瞬时移除：新消息自带 fadeUp + 平滑滚底，若这里做淡出，收起时视口会被夹回底部产生二次跳变
   const t = $("#typing-indicator");
   if (t) t.remove();
+}
+// 「取消并退回编辑」行：AI 思考/搜索期间显示于打字动画下方，点击撤回本次发送
+function appendCancelRow(onCancel) {
+  const wrap = $("#chat-messages");
+  const el = document.createElement("div");
+  el.className = "chat-msg ai";
+  el.id = "chat-cancel-row";
+  el.innerHTML =
+    avatarHtml("ai") +
+    `<div class="chat-bubble" style="padding:6px 10px;"><button type="button" class="chip" id="cancel-send-btn">取消并退回编辑</button></div>`;
+  wrap.appendChild(el);
+  el.querySelector("#cancel-send-btn").addEventListener("click", onCancel);
+  scrollChat(false);
+}
+function removeCancelRow() {
+  const el = $("#chat-cancel-row");
+  if (el) el.remove();
 }
 
 let chatBusy = false;
@@ -1577,26 +1772,49 @@ async function sendMsg(text) {
     }
     userHtml += '</div>';
   }
-  appendMsg("user", userHtml);
+  const userEl = appendMsg("user", userHtml);
   $("#chat-input").value = "";
   pendingImages = [];
   renderImagePreview();
   autoResizeInput();
   appendTyping();
 
+  // 取消发送：撤回气泡与打字动画、内容退回输入框；后端该次请求跑完后作废不入历史
+  const reqId = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const controller = new AbortController();
+  let cancelledByUser = false;
+  appendCancelRow(() => {
+    if (cancelledByUser) return;
+    cancelledByUser = true;
+    try { controller.abort(); } catch (_) {}
+    api("/api/chat_cancel", "POST", { request_id: reqId }).catch(() => {});
+    removeTyping();
+    removeCancelRow();
+    if (userEl && userEl.parentNode) userEl.remove();
+    $("#chat-input").value = msg;          // 原文退回输入框重新编辑
+    pendingImages = imgs.slice();          // 图片一并退回
+    renderImagePreview();
+    autoResizeInput();
+    $("#chat-input").focus();
+  });
+
   try {
     let res;
     if (imgs.length) {
       // 带图片 → /api/image 端点
-      res = await api("/api/image", "POST", { images: imgs, text: msg, session_id: CURRENT_SESSION_ID });
+      res = await api("/api/image", "POST", { images: imgs, text: msg, session_id: CURRENT_SESSION_ID, request_id: reqId }, { signal: controller.signal });
     } else {
       // 纯文字 → /api/chat 端点
-      res = await api("/api/chat", "POST", { message: msg, session_id: CURRENT_SESSION_ID });
+      res = await api("/api/chat", "POST", { message: msg, session_id: CURRENT_SESSION_ID, request_id: reqId }, { signal: controller.signal });
     }
     removeTyping();
-    if (res.ok) {
+    removeCancelRow();
+    if (cancelledByUser) {
+      // 已取消：UI 已在取消时撤回，迟到的响应一律丢弃（后端同刻取消则连历史都不会写入）
+    } else if (res.ok) {
       appendMsg("ai", renderMarkdown(res.reply || res.message || ""));
-      if (Array.isArray(res.chips) && res.chips.length) appendChips(res.chips);
+      if (res.clarify_form && res.clarify_form.questions) appendClarifyForm(res.clarify_form);
+      else if (Array.isArray(res.chips) && res.chips.length) appendChips(res.chips);
       updateBadges(res.snapshot);
       if (res.reply) tryExtractAndRenderRecommendations(res.reply);
       if (res.pending_order) toast("已进入下单确认流程，回复「确认」执行下单", "warn");
@@ -1611,8 +1829,13 @@ async function sendMsg(text) {
     }
   } catch (e) {
     removeTyping();
-    appendMsg("ai", renderMarkdown("网络错误：" + e.message + "\n请确保后端服务已启动（`启动购物助手-网页版.bat`）"));
-    toast("网络错误，请检查后端是否启动", "err");
+    removeCancelRow();
+    if (e && e.name === "AbortError") {
+      // 用户主动取消：撤回与输入恢复已在取消回调完成，这里静默
+    } else {
+      appendMsg("ai", renderMarkdown("网络错误：" + e.message + "\n请确保后端服务已启动（`启动购物助手-网页版.bat`）"));
+      toast("网络错误，请检查后端是否启动", "err");
+    }
   } finally {
     chatBusy = false;
     $("#send-btn").disabled = false;
@@ -1678,6 +1901,7 @@ async function loadUserCenter(){
   $("#uc-nickname").value = _uc.nickname || "";
   $("#uc-uid").textContent = _uc.user_id || "—";
   renderUcAvatar();
+  renderUcGender();
   renderUcPrefs();
   applyUcLocal(_uc.prefs || {});
 }
@@ -1687,9 +1911,53 @@ function renderUcAvatar(){
   if(!el) return;
   const color = (_uc && _uc.avatar_color) || "classic";
   el.className = "uc-avatar " + color;
-  el.textContent = ((_uc && _uc.nickname) || "用").charAt(0).toUpperCase();
+  const src = ucAvatarSrc();
+  if (src) el.innerHTML = '<img src="' + escapeHtml(src) + '" alt="头像">';
+  else el.textContent = ((_uc && _uc.nickname) || "用").charAt(0).toUpperCase();
   $("#uc-colors").innerHTML = UC_COLORS.map(([k,c,title]) =>
     `<button class="skin-dot${k===color?" active":""}" style="--dot:${c}" title="${title}" onclick="pickUcColor('${k}')"></button>`).join("");
+}
+
+/* 性别（用于挑选系统默认头像） */
+const UC_GENDERS = [["","未填写"],["male","男生"],["female","女生"]];
+function renderUcGender(){
+  const box = $("#uc-gender");
+  if(!box) return;
+  const g = (_uc && _uc.gender) || "";
+  box.innerHTML = UC_GENDERS.map(([v,label]) =>
+    `<button class="${g===v?"active":""}" onclick="setUcGender('${v}')">${label}</button>`).join("");
+}
+async function setUcGender(v){
+  const r = await api("/api/usercenter","POST",{ gender: v });
+  if(r && r.ok){
+    _uc = r.user; renderUcGender(); renderUcAvatar(); refreshChatAvatars();
+    toast("性别已保存，默认头像已更新","ok");
+  } else toast((r && r.error) || "保存失败","err");
+}
+
+/* 头像上传（与对话购物图片上传同方式：FileReader 转 data URI 提交，服务端落盘长期保存） */
+function onUcAvatarSelect(e){
+  const f = (e.target.files || [])[0];
+  e.target.value = "";
+  if(!f) return;
+  if(!f.type.startsWith("image/")){ toast("请选择图片文件","err"); return; }
+  if(f.size > 2 * 1024 * 1024){ toast("头像图片不能超过 2MB","err"); return; }
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const r = await api("/api/usercenter","POST",{ avatar_data: ev.target.result });
+    if(r && r.ok){
+      _uc = r.user; renderUcAvatar(); refreshChatAvatars();
+      toast("头像已更新（长期保存在本机）","ok");
+    } else toast((r && r.error) || "头像上传失败","err");
+  };
+  reader.readAsDataURL(f);
+}
+async function resetUcAvatar(){
+  const r = await api("/api/usercenter","POST",{ avatar: "" });
+  if(r && r.ok){
+    _uc = r.user; renderUcAvatar(); refreshChatAvatars();
+    toast("已恢复默认头像","ok");
+  } else toast((r && r.error) || "操作失败","err");
 }
 
 function pickUcColor(k){ if(_uc){ _uc.avatar_color = k; renderUcAvatar(); } }
@@ -1848,7 +2116,7 @@ async function createSession() {
 
 async function deleteSession(id) {
   if (!id) return;
-  if (!confirm("确认删除该会话？删除后聊天记录不可恢复。")) return;
+  if (!(await askConfirm({ title: "删除会话", icon: "delete", message: "确认删除该会话？删除后聊天记录不可恢复。" }))) return;
   try {
     const r = await api("/api/sessions/" + encodeURIComponent(id), "DELETE");
     if (!r || !r.ok) { toast((r && r.error) || "删除失败", "err"); return; }
@@ -1965,10 +2233,11 @@ async function cartAction(action, extra={}) {
   if (r.response) toast(r.response);
 }
 function cartRemove(i){ cartAction("remove",{index:i}); }
-function cartClear(){ if(confirm("确认清空虚拟购物车？")) cartAction("clear"); }
+async function cartClear(){ if(await askConfirm({ title: "清空购物车", icon: "remove_shopping_cart", message: "确认清空虚拟购物车？" })) cartAction("clear"); }
 function cartToggleMonitor(i){ cartAction("monitor",{index:i}); }
-function cartNote(i){
-  const v = prompt("输入备注："); if(v!=null) cartAction("note",{index:i,note:v});
+async function cartNote(i){
+  const v = await askText({ title: "添加备注", placeholder: "输入备注：", okText: "保存" });
+  if(v != null) cartAction("note",{index:i,note:v});
 }
 async function cartCheckPrices(){
   const r = await api("/api/cart","GET");
@@ -2024,7 +2293,7 @@ function listAdd(){
 }
 function listRemove(i){ listAction("remove",{index:i}); }
 function listToggle(i){ listAction("toggle_done",{index:i}); }
-function listClearDone(){ if(confirm("确认清空全部已完成条目？")) listAction("clear_done"); }
+async function listClearDone(){ if(await askConfirm({ title: "清空已完成", icon: "delete_sweep", message: "确认清空全部已完成条目？" })) listAction("clear_done"); }
 function listToggleDoneView(){ const d = $("#list-done"); d.style.display = d.style.display === "none" ? "" : "none"; }
 
 // 去推荐：填入对话输入框并聚焦，不自动发送（抓取克制：由用户确认后再发）
@@ -2093,7 +2362,7 @@ async function apiKeyAction(action){
   const model = $("#api-model-input").value.trim();
 
   if(action === "set" && !key){ toast("请先填写 API Key","warn"); return; }
-  if(action === "clear" && !confirm("确认删除本地保存的 API Key 吗？")) return;
+  if(action === "clear" && !(await askConfirm({ title: "删除 API Key", icon: "key_off", message: "确认删除本地保存的 API Key 吗？" }))) return;
 
   const btnEvt = {set:"自动探测中（需要几秒钟，最多探测8个服务商）…", test:"连通性测试中…", clear:"删除中…"};
   toast(btnEvt[action]);
@@ -2167,7 +2436,7 @@ async function loadLoginStates(boxId = "login-states"){
 }
 
 async function loginAction(action, platform, boxId = "login-states"){
-  if(action === "clear" && !confirm(`确认清除 ${platform} 的登录态吗？清除后需要重新扫码登录。`)) return;
+  if(action === "clear" && !(await askConfirm({ title: "清除登录态", icon: "logout", message: `确认清除 ${platform} 的登录态吗？清除后需要重新扫码登录。` }))) return;
   toast(action === "check" ? `正在打开浏览器检测 ${platform} 登录态（约 5-25 秒）…`
       : action === "login" ? "正在弹出浏览器，请在窗口内扫码/手动登录（最长等 3 分钟，关闭窗口即可取消）…"
       : `正在清除 ${platform} 登录态…`);
@@ -2244,7 +2513,7 @@ async function viewProfile() {
   }
 }
 async function clearProfile() {
-  if (!confirm("真的要清空全部档案吗？此操作不可撤销。")) return;
+  if (!(await askConfirm({ title: "清空档案", icon: "warning", message: "真的要清空全部档案吗？此操作不可撤销。" }))) return;
   const r = await api("/api/profile", "POST", { action: "clear", payload: "" });
   if (r.ok) { toast("档案已清空", "ok"); loadProfile(); }
 }
@@ -2360,8 +2629,8 @@ async function submitAftersale(oid) {
   switchTab("tab-orders");
 }
 async function cancelOrder(oid) {
-  if (!confirm("确认取消订单 " + oid + " 吗？")) return;
-  const reason = prompt("取消原因（可选）：", "不想要了") || "";
+  const reason = await askText({ title: "取消订单", icon: "cancel", danger: true, message: `确认取消订单 ${oid} 吗？`, placeholder: "取消原因（可选）", value: "不想要了", okText: "确认取消" });
+  if (reason === null) return;
   const r = await api("/api/cancel", "POST", { order_id: oid, reason });
   if (!r.ok) { toast(r.error || "取消失败", "err"); return; }
   toast("订单已取消", "ok");
@@ -2375,6 +2644,54 @@ function openModal(html) {
 function closeModal() {
   $("#modal-mask").classList.remove("open");
 }
+
+/* =============== 主题化确认/输入弹窗（替代系统 confirm/prompt 样式） =============== */
+let _confirmResolve = null, _confirmHasInput = false;
+function _finishConfirm(ok) {
+  if (!_confirmResolve) return;
+  const resolve = _confirmResolve; _confirmResolve = null;
+  $("#confirm-mask").classList.remove("open");
+  document.removeEventListener("keydown", _confirmKeydown);
+  if (_confirmHasInput) resolve(ok ? ($("#confirm-input") ? $("#confirm-input").value : "") : null);
+  else resolve(!!ok);
+  _confirmHasInput = false;
+}
+function _confirmKeydown(e) {
+  if (e.key === "Escape") _finishConfirm(false);
+  else if (e.key === "Enter" && !e.isComposing) _finishConfirm(true);
+}
+function _openConfirmBox(opts) {
+  if (_confirmResolve) _finishConfirm(false);
+  const o = Object.assign({ icon: "warning", danger: true, okText: "确认", cancelText: "取消", title: "请确认" }, opts);
+  _confirmHasInput = !!o.input;
+  const box = $("#confirm-box");
+  box.innerHTML = `
+    <div class="confirm-icon${o.danger ? " danger" : ""}"><span class="material-symbols-outlined">${o.icon}</span></div>
+    <h3 id="confirm-title"></h3>
+    <div class="confirm-msg" id="confirm-msg"></div>
+    ${_confirmHasInput ? '<input class="input" id="confirm-input" style="margin-bottom:16px;">' : ""}
+    <div class="confirm-actions">
+      <button class="btn" id="confirm-cancel"></button>
+      <button class="btn ${o.danger ? "danger" : "primary"}" id="confirm-ok"></button>
+    </div>`;
+  // 标题/正文走 textContent，防止内容里带引号或用户输入时破坏结构
+  $("#confirm-title").textContent = o.title;
+  $("#confirm-msg").textContent = o.message || "";
+  $("#confirm-cancel").textContent = o.cancelText;
+  $("#confirm-ok").textContent = o.okText;
+  if (_confirmHasInput) {
+    $("#confirm-input").placeholder = o.placeholder || "";
+    $("#confirm-input").value = o.value || "";
+  }
+  $("#confirm-mask").classList.add("open");
+  $("#confirm-cancel").onclick = () => _finishConfirm(false);
+  $("#confirm-ok").onclick = () => _finishConfirm(true);
+  if (_confirmHasInput) { const inp = $("#confirm-input"); inp.focus(); inp.select(); }
+  document.addEventListener("keydown", _confirmKeydown);
+  return new Promise(resolve => { _confirmResolve = resolve; });
+}
+function askConfirm(opts) { return _openConfirmBox(opts); }
+function askText(opts) { return _openConfirmBox(Object.assign({ input: true, icon: "edit", danger: false, okText: "确定" }, opts)); }
 
 /* =============== Tab 4: TOP3 推荐卡片解析渲染 =============== */
 function tryExtractAndRenderRecommendations(text) {
@@ -2397,19 +2714,18 @@ function tryExtractAndRenderRecommendations(text) {
     const goodsLines = [], badLines = [];
     let _sec = "";
     b.split("\n").forEach(line => {
-      const h = line.match(/^- \*\*(优点|缺点)\*\*/);
+      const h = line.match(/^- \*\*(买家好评|买家差评)\*\*/);
       if (h) { _sec = h[1]; return; }
       const it = line.match(/^[ \t]+-\s+(.+)$/);
       if (it) {
-        if (_sec === "优点") goodsLines.push(it[1].trim());
-        else if (_sec === "缺点") badLines.push(it[1].trim());
+        if (_sec === "买家好评") goodsLines.push(it[1].trim());
+        else if (_sec === "买家差评") badLines.push(it[1].trim());
       }
     });
     const goods = goodsLines.join("；");
     const bads  = badLines.join("；");
     const risk = (b.match(/- \*\*风险提示\*\*：(.+)$/m) || [,""])[1].trim();
     const matchReason = (b.match(/- \*\*适配(?:你的个人偏好)?说明\*\*：(.+)$/m) || [,""])[1].trim();
-    const tags = (b.match(/- \*\*属性标签\*\*：(.+)$/m) || [,""])[1].trim();
     // 售后/发货：现行格式在「购买建议」行（建议。售后政策｜预计N天内发货）
     const buyLine = (b.match(/- \*\*购买建议\*\*：(.+)$/m) || [,""])[1];
     const aftersale = (buyLine.split("。")[1] || "").split("｜")[0].trim();
@@ -2424,7 +2740,7 @@ function tryExtractAndRenderRecommendations(text) {
       : (s100
         ? { match:+s100[1], value:+s100[2], rep:+s100[3], riskSafe:+s100[4], ship:+s100[5], total:+s100[6], adapt10:0,value10:0,total10:0 }
         : { match:0,value:0,rep:0,riskSafe:0,ship:0,total:0, adapt10:0,value10:0,total10:0 });
-    recs.push({ rank, name, platform, seller, finalPrice, origPrice, discount, goods, bads, risk, matchReason, tags, aftersale, ship, pid, dataSource, score: s });
+    recs.push({ rank, name, platform, seller, finalPrice, origPrice, discount, goods, bads, risk, matchReason, aftersale, ship, pid, dataSource, score: s });
   });
   if (!recs.length) return;
   $("#rec-empty").style.display = "none";
@@ -2442,10 +2758,9 @@ function tryExtractAndRenderRecommendations(text) {
       </div>
       <dl>
         <dt>真实评价提炼</dt>
-        <dd class="good">${escapeHtml(r.goods || "无")}</dd>
-        <dd class="bad">${escapeHtml(r.bads || "暂无明显差评")}</dd>
+        <dd class="good">${escapeHtml(r.goods || "未抓取到买家评价明细")}</dd>
+        <dd class="bad">${escapeHtml(r.bads || "未抓取到评价数据，无法判断差评情况")}</dd>
         <dt>偏好适配</dt><dd>${escapeHtml(r.matchReason || "")}</dd>
-        <dt>属性标签</dt><dd>${escapeHtml(r.tags || "")}</dd>
         <dt>售后/发货</dt><dd>${escapeHtml((r.aftersale||"") + "｜" + (r.ship?("预计" + r.ship + "天发货"):""))}</dd>
       </dl>
       <div class="score-grid">
@@ -2474,6 +2789,8 @@ function buyRec(rank) {
 /* =============== 新手引导（仅首次） =============== */
 let _obStep = 1;
 let _obColor = null;
+let _obGender = null;
+let _obAvatarData = null;   // 引导期选择的头像 data URI，第 2 步保存时一并提交
 
 function maybeOnboard(){
   let done = false;
@@ -2498,19 +2815,33 @@ function showOnboardStep(n){
     $("#onboard-next").textContent = "下一步";
   } else if(n === 2){
     const color = (_uc && _uc.avatar_color) || "classic";
+    _obGender = (_uc && _uc.gender) || "";
+    _obAvatarData = null;
     body.innerHTML = `
       <h3 style="margin-bottom:8px;">先认识一下：设置你的账户</h3>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;">
         <div class="uc-avatar ${color}" id="ob-avatar">${((_uc&&_uc.nickname)||"用").charAt(0).toUpperCase()}</div>
-        <div style="flex:1;min-width:200px;">
+        <div style="flex:1;min-width:220px;">
           <input type="text" class="input" id="ob-nickname" maxlength="20" placeholder="怎么称呼你？（可跳过）">
+          <div class="help" style="margin-top:8px;">性别（用于挑选系统默认头像）：</div>
+          <div class="seg" id="ob-gender" style="margin-top:4px;"></div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label class="btn sm ghost" style="cursor:pointer;margin:0;" title="上传自定义头像（可选，长期保存在本机）">
+              <span class="material-symbols-outlined">upload</span> 上传头像（可选）
+              <input type="file" id="ob-avatar-input" accept="image/*" style="display:none" onchange="obPickAvatar(event)">
+            </label>
+            <span class="help" id="ob-avatar-hint">不上传则按性别使用系统默认头像</span>
+          </div>
           <div class="help" style="margin-top:8px;">头像色：</div>
           <div class="skin-dots" id="ob-colors" style="margin-top:4px;"></div>
         </div>
       </div>`;
+    $("#ob-gender").innerHTML = UC_GENDERS.map(([v,label]) =>
+      `<button class="${_obGender===v?"active":""}" onclick="obPickGender('${v}')">${label}</button>`).join("");
     $("#ob-colors").innerHTML = UC_COLORS.map(([k,c,title]) =>
       `<button class="skin-dot${k===color?" active":""}" style="--dot:${c}" title="${title}" onclick="obPickColor('${k}')"></button>`).join("");
     $("#ob-nickname").value = (_uc && _uc.nickname) || "";
+    if (_obGender) obPickGender(_obGender);   // 已有性别时进入即预览对应默认头像
     $("#onboard-next").textContent = "保存并下一步";
   } else if(n === 3){
     body.innerHTML = `
@@ -2537,17 +2868,49 @@ function showOnboardStep(n){
 function obPickColor(k){
   _obColor = k;
   const av = $("#ob-avatar");
-  if(av) av.className = "uc-avatar " + k;
+  if(av && !av.querySelector("img")) av.className = "uc-avatar " + k;
   $$("#ob-colors .skin-dot").forEach((d,i) => d.classList.toggle("active", UC_COLORS[i] && UC_COLORS[i][0] === k));
+}
+function obPickGender(v){
+  _obGender = v;
+  $$("#ob-gender button").forEach(b => b.classList.toggle("active", b.textContent === (UC_GENDERS.find(g => g[0]===v)||["",""])[1]));
+  // 未上传自定义头像时，实时预览按性别切换的系统默认头像
+  if(!_obAvatarData){
+    const av = $("#ob-avatar");
+    if(av){
+      const src = v === "male" ? "/resource/avatar_male.png" : v === "female" ? "/resource/avatar_female.png" : "";
+      av.innerHTML = src ? '<img src="' + src + '" alt="">' : escapeHtml(((_uc&&_uc.nickname)||"用").charAt(0).toUpperCase());
+      if(!src) av.className = "uc-avatar " + ((_obColor || (_uc && _uc.avatar_color)) || "classic");
+    }
+  }
+}
+function obPickAvatar(e){
+  const f = (e.target.files || [])[0];
+  e.target.value = "";
+  if(!f) return;
+  if(!f.type.startsWith("image/")){ toast("请选择图片文件","err"); return; }
+  if(f.size > 2 * 1024 * 1024){ toast("头像图片不能超过 2MB","err"); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    _obAvatarData = ev.target.result;
+    const av = $("#ob-avatar");
+    if(av) av.innerHTML = '<img src="' + _obAvatarData + '" alt="">';
+    const hint = $("#ob-avatar-hint");
+    if(hint) hint.textContent = "已选择自定义头像，点「保存并下一步」生效";
+  };
+  reader.readAsDataURL(f);
 }
 async function onboardNext(){
   if(_obStep === 2){
     const nick = $("#ob-nickname") ? $("#ob-nickname").value : "";
-    const r = await api("/api/usercenter","POST",
-      { nickname: nick, avatar_color: _obColor || (_uc && _uc.avatar_color) || "classic" });
+    const payload = { nickname: nick,
+      avatar_color: _obColor || (_uc && _uc.avatar_color) || "classic",
+      gender: _obGender || "" };
+    if(_obAvatarData) payload.avatar_data = _obAvatarData;
+    const r = await api("/api/usercenter","POST", payload);
     if(r && r.ok){
       _uc = r.user;
-      renderUcAvatar();
+      renderUcAvatar(); refreshChatAvatars();
       if($("#uc-nickname")) $("#uc-nickname").value = _uc.nickname || "";
     }
   }
@@ -2583,6 +2946,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     return;
   }
   // 2) 加载档案+订单（取最新快照）+ 恢复会话 + 用户中心（偏好即时生效）+ 首次引导
+  applyThemeAssets();   // 按当前皮肤校正 favicon 与欢迎气泡 AI 头像
   loadProfile();
   loadOrders();
   initSessions();

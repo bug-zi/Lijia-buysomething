@@ -441,7 +441,6 @@ class Recommender:
                 pass  # 静默回退
 
         for idx, (p, s) in enumerate(zip(products, scores), 1):
-            tag_str = "、".join(p.tags[:6])
             src_badge = "[真实数据]" if p.data_source == "真实" else "[演示数据]"
             lines.append(f"### 第{idx}名｜**{p.name}**  `{src_badge}`")
             if p.images:
@@ -449,30 +448,30 @@ class Recommender:
             # 基础信息
             store_info = p.seller or "—"
             lines.append(f"- **基础信息**：{p.platform}  ·  店铺：{store_info}  ·  {p.category or '未分类'}")
-            # 优点 ≥3
+            # 买家评价（有几条真数据显几条；无数据如实说明，绝不编造凑数）
             pros = list(p.review.good_points[:3]) if p.review.good_points else []
-            if len(pros) < 3:
-                hl = self._core_highlights(p)
-                if hl:
-                    for seg in re.split(r"[；;]", hl):
-                        seg = seg.strip()
-                        if seg and seg not in pros:
-                            pros.append(seg)
-                        if len(pros) >= 3:
-                            break
-            while len(pros) < 3:
-                pros.append("综合评价良好，无明显短板")
-            lines.append(f"- **优点**（≥3）：")
-            for gp in pros[:3]:
-                lines.append(f"  - {gp}")
-            # 缺点 ≥2
+            if pros:
+                lines.append("- **买家好评**：")
+                for gp in pros:
+                    lines.append(f"  - {gp}")
+            else:
+                lines.append("- **买家好评**：未抓取到买家评价明细")
+            hl = self._core_highlights(p)
+            if hl:
+                lines.append(f"- **商品卖点**（来自属性信息，非买家评价）：{hl}")
+            # 买家差评
             cons = list(p.review.bad_points[:3]) if p.review.bad_points else []
-            while len(cons) < 2:
-                cons.append("暂无明显差评")
-            lines.append(f"- **缺点**（≥2）：")
-            for bp in cons[:2]:
-                lines.append(f"  - {bp}")
-            lines.append(f"  （好评率{p.review.positive_rate*100:.0f}%｜总评{p.review.review_count}｜带图追评{p.review.image_reviews}）")
+            if cons:
+                lines.append("- **买家差评**：")
+                for bp in cons:
+                    lines.append(f"  - {bp}")
+            elif p.review.review_count > 0:
+                lines.append(f"- **买家差评**：评价明细未抓取到（平台总评{p.review.review_count}条），无法判断差评情况")
+            else:
+                lines.append("- **买家差评**：未抓取到评价数据，无法判断差评情况")
+            # 好评率统计行仅在确有评价数时输出（避免无数据冒出默认好评率）
+            if p.review.review_count > 0:
+                lines.append(f"  （好评率{p.review.positive_rate*100:.0f}%｜总评{p.review.review_count}｜带图追评{p.review.image_reviews}）")
             # 价格分析
             if p.price > 0 and p.final_price < p.price:
                 drop_pct = (p.price - p.final_price) / p.price * 100
@@ -494,7 +493,7 @@ class Recommender:
             # 商品链接
             if p.source_url:
                 lines.append(f"- **商品链接**：{p.source_url}")
-            lines.append(f"- **属性标签**：{tag_str}  ·  商品ID：`{p.pid}`")
+            lines.append(f"- **商品ID**：`{p.pid}`")
             lines.append("")
 
         # 横向对比

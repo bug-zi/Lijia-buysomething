@@ -70,6 +70,74 @@ CATEGORY_HINTS = {
     "T恤": ["t恤", "polo", "短袖", "体恤", "tee"],
 }
 
+# 品类追问问题集（表单化）：core_attrs=关键属性问题（attrs 维度缺失时给出，带选项或自填）；
+# extra=次要方向问题（恒 2 问，选填，用户写进补充栏）。预算/用途两问全品类通用。
+# 各品类表单总计 = 预算1 + 用途1 + core_attrs 1~2 + extra 2 → 4~6 问。
+# 注意：选项文案不得含「数字-数字/数字以上」形态（会被 _parse_budget 误解析为预算区间）。
+_BUDGET_CHIPS = ["100以内", "100-300", "300-800", "800-1500", "1500以上"]
+_Q_BUDGET = {"key": "budget", "label": "预算大概多少", "options": list(_BUDGET_CHIPS), "multi": False}
+_Q_PURPOSE = {"key": "purpose", "label": "主要什么场景用",
+              "options": ["自用", "送礼", "办公", "通勤", "运动"], "multi": True}
+_CATEGORY_QUESTIONS = [
+    {"match": ("杯子", "水杯", "马克杯", "保温杯"),
+     "core_attrs": [
+         {"key": "material", "label": "什么材质", "options": ["玻璃", "陶瓷", "不锈钢", "塑料", "硅胶"], "multi": True},
+         {"key": "capacity", "label": "容量偏好", "options": ["小容量", "中容量", "大容量"], "multi": False},
+     ],
+     "extra": [{"key": "color", "label": "颜色偏好", "optional": True},
+               {"key": "func", "label": "功能款式（带盖/吸管/可挂绳/保温时长等）", "optional": True}]},
+    {"match": ("手机壳", "保护壳", "手机套"),
+     "core_attrs": [
+         {"key": "model", "label": "适配什么手机型号", "options": None, "multi": False},
+         {"key": "material", "label": "材质/款式", "options": ["硅胶", "透明", "磁吸", "防摔", "皮革", "挂绳"], "multi": True},
+     ],
+     "extra": [{"key": "color", "label": "颜色偏好", "optional": True},
+               {"key": "detail", "label": "细节要求（镜头保护/边角加厚/轻薄等）", "optional": True}]},
+    {"match": ("连衣裙", "裙子", "旗袍"),
+     "core_attrs": [
+         {"key": "style_fit", "label": "风格/版型", "options": ["法式", "通勤", "甜酷", "收腰", "宽松", "直筒"], "multi": True},
+     ],
+     "extra": [{"key": "occasion", "label": "具体场合（婚礼/日常/约会等）", "optional": True},
+               {"key": "fabric", "label": "面料偏好（雪纺/针织/棉麻等）", "optional": True}]},
+    {"match": ("运动鞋", "跑鞋", "球鞋", "帆布鞋", "篮球鞋"),
+     "core_attrs": [
+         {"key": "shoe_type", "label": "类型/款式", "options": ["跑步", "板鞋", "篮球鞋", "老爹鞋", "小白鞋"], "multi": True},
+     ],
+     "extra": [{"key": "venue", "label": "使用场地（公路/塑胶跑道/健身房等）", "optional": True},
+               {"key": "foot", "label": "脚型特点（宽脚/高足弓/扁平足等）", "optional": True}]},
+    {"match": ("耳机", "耳麦"),
+     "core_attrs": [
+         {"key": "shape", "label": "形态", "options": ["头戴式", "入耳式", "半入耳", "骨传导"], "multi": False},
+         {"key": "func", "label": "功能要求", "options": ["降噪", "无线", "长续航", "运动防汗"], "multi": True},
+     ],
+     "extra": [{"key": "sound", "label": "音质取向（低音/人声/游戏低延迟等）", "optional": True},
+               {"key": "wear", "label": "佩戴场景（通勤地铁/久坐办公等）", "optional": True}]},
+    {"match": ("手机", "旗舰机"),
+     "core_attrs": [
+         {"key": "brand", "label": "系统/品牌", "options": ["苹果", "安卓", "华为", "小米", "OPPO", "vivo"], "multi": True},
+         {"key": "usage", "label": "主要用途", "options": ["游戏", "拍照", "商务", "长辈用"], "multi": True},
+     ],
+     "extra": [{"key": "storage", "label": "存储/内存要求（大存储、长续航等）", "optional": True},
+               {"key": "condition", "label": "新机/二手接受度", "optional": True}]},
+    {"match": ("t恤", "polo", "短袖", "体恤"),
+     "core_attrs": [
+         {"key": "style_fit", "label": "风格/版型", "options": ["纯棉", "宽松", "修身", "印花", "polo"], "multi": True},
+     ],
+     "extra": [{"key": "wear_scene", "label": "穿法场景（内搭/外穿/运动等）", "optional": True},
+               {"key": "pattern", "label": "图案偏好（纯色/字母/动漫联名等）", "optional": True}]},
+]
+# 未知品类兜底问题集
+_QUESTIONS_GENERIC = {
+    "match": (),
+    "core_attrs": [
+        {"key": "attrs", "label": "有什么具体要求（材质/颜色/规格等）", "options": None, "multi": True},
+    ],
+    "extra": [{"key": "color", "label": "颜色偏好", "optional": True},
+              {"key": "other", "label": "其他要求（尺寸/规格/品牌等）", "optional": True}],
+}
+_PURPOSE_Q = "主要什么场景用？（如自用/送礼/办公/通勤/运动…）"
+_PURPOSE_CHIPS = ["自用", "送礼", "办公", "通勤"]
+
 
 class RequestParser:
 
@@ -102,14 +170,55 @@ class RequestParser:
                 try:
                     v = float(pb)
                     if v > 0:
-                        req.price_max = v
-                        if "预算" not in (req.needs_clarify or []):
-                            # 标记本次预算来自档案（不视为待追问项）
-                            pass
+                        req.price_max = v  # 视为预算已有默认值，不再追问
                 except (ValueError, TypeError):
                     pass
 
+        # 4) 核心维度缺失标记（预算/用途/品类关键属性），在规则+LLM+档案合并完成后统一计算
+        form = self.clarify_form(req)
+        req.needs_clarify = [f"{q['label']}？" for q in (form or {}).get("questions", [])]
+
         return req
+
+    def missing_dims(self, req: "ShoppingRequest") -> List[str]:
+        """核心维度完整度判定（纯规则，LLM 不参与门槛）：返回缺失维度名列表。
+        dim ∈ budget/purpose/attrs。无品类且无关键词（泛词）时返回空——该场景由品类问答闸负责。"""
+        has_target = bool((req.keyword or "").strip()) or bool(req.category)
+        if not has_target:
+            return []
+        dims: List[str] = []
+        if req.price_min is None and req.price_max is None:
+            dims.append("budget")
+        if not (req.purpose or "").strip():
+            dims.append("purpose")
+        if not req.require_tags:
+            dims.append("attrs")
+        return dims
+
+    def clarify_form(self, req: "ShoppingRequest") -> Optional[Dict[str, Any]]:
+        """结构化澄清表单（网页端追问表单的数据源）：核心缺失维度在前（带选项或自填），
+        次要方向问题恒 2 问殿后（选填，用户写进补充栏），总计 4~6 问；无核心缺失返回 None。"""
+        dims = self.missing_dims(req)
+        if not dims:
+            return None
+        t = f"{req.category or ''} {req.keyword or ''}".strip().lower()
+        cq = _QUESTIONS_GENERIC
+        for entry in _CATEGORY_QUESTIONS:
+            if any(w in t for w in entry["match"]):
+                cq = entry
+                break
+        questions: List[Dict[str, Any]] = []
+        if "budget" in dims:
+            questions.append(dict(_Q_BUDGET))
+        if "purpose" in dims:
+            questions.append(dict(_Q_PURPOSE))
+        if "attrs" in dims:
+            for q in cq["core_attrs"]:
+                questions.append(dict(q))
+        for q in cq["extra"]:
+            questions.append(dict(q))
+        target = (req.category or (req.keyword or "").strip() or "商品")
+        return {"target": target, "questions": questions, "skip_text": "直接搜"}
 
     def _parse_rules(self, text: str) -> ShoppingRequest:
         """原来的 parse 全量逻辑（规则版），改名后不改动内部流程"""
@@ -150,7 +259,7 @@ class RequestParser:
 
         # 4) 用途: "送礼/自用/上班/跑步/健身/拍照"
         purpose_words = ["送礼", "礼物", "自用", "上班", "通勤", "跑步", "健身", "运动", "拍照",
-                         "约会", "旅游", "婚礼", "面试"]
+                         "约会", "旅游", "婚礼", "面试", "办公", "户外", "车载"]
         for pw in purpose_words:
             if pw in t:
                 req.purpose = pw
@@ -177,12 +286,8 @@ class RequestParser:
         # 9) 核心关键词：提取剩余名词短语 — 简单策略：把已知字段去掉，再清理
         req.keyword = self._extract_keyword(t, req)
 
-        # 10) 需要追问的信息点
-        if not req.keyword and not req.category and not req.target_rank:
-            req.needs_clarify.append("想买什么品类的商品？（如连衣裙/运动鞋/手机/T恤…）")
-        if req.keyword and not req.price_max and not req.price_min and req.category in ("连衣裙", "运动鞋", "耳机", "手机"):
-            # 不强制追问预算，有需要时系统会提示；但预算缺失时标记
-            req.needs_clarify.append("预算大概多少？（可以先看推荐再调整）")
+        # 10) 待追问信息点（needs_clarify）不再在此计算——须等 LLM 增强与档案默认预算
+        #     合并完成后才有准确结论，统一移到 parse() 末尾用 missing_dims() 计算
         return req
 
     # --------- 子方法 ---------
@@ -337,10 +442,11 @@ class RequestParser:
                        "运动", "休闲", "国风", "新中式", "简约", "甜美", "可爱", "oversize",
                        "街头", "潮牌", "正式", "职业"]
         material_words = ["纯棉", "棉", "雪纺", "针织", "缎面", "真丝", "亚麻", "棉麻",
-                          "牛仔", "速干", "皮质", "透气"]
+                          "牛仔", "速干", "皮质", "透气", "玻璃", "陶瓷", "不锈钢", "塑料", "硅胶", "透明"]
         fit_words = ["修身", "收腰", "显瘦", "宽松", "oversize", "紧身", "包臀", "A字",
                      "直筒", "阔腿", "高腰", "低腰", "短款", "长款", "长裙", "短裙", "中裙"]
-        func_words = ["降噪", "防水", "无线", "蓝牙", "专业", "旗舰", "长续航", "自拍", "影像"]
+        func_words = ["降噪", "防水", "无线", "蓝牙", "专业", "旗舰", "长续航", "自拍", "影像",
+                      "磁吸", "防摔", "挂绳", "腕带", "带盖", "吸管", "保温"]
         size_words = ["大码", "小码", "加大", "加小", "小个子", "高个"]
         tables = [color_words, style_words, material_words, fit_words, func_words, size_words]
         lower = t.lower()
