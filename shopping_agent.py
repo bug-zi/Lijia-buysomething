@@ -18,9 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cor
 
 from profile_module import ProfileManager
 from product_searcher import ProductSearcher, Product
-from recommender import Recommender
+from recommender import Recommender, COLOR_KEYWORDS
 from order_manager import OrderManager, Order, LogisticsEvent
-from request_parser import RequestParser, ShoppingRequest
+from request_parser import RequestParser, ShoppingRequest, _COLOR_WORDS
 from virtual_cart import VirtualCart
 from shopping_list import shopping_list
 from account_manager import data_dir
@@ -67,6 +67,7 @@ class ChatSession:
         self._pending_order: Optional[Order] = None           # 待确认的订单草稿
         self._pending_rank: Optional[int] = None              # 待确认购买的序号
         self._cancelled = False                                # 用户是否已取消当前搜索
+        self._cancel_check = None                              # 消息撤回检查点（web 层传入，轮询即中止搜索）
         self._pending_urls: List[str] = []                    # 被验证码拦截的URL，用于"继续抓取"重试
         self._pending_search = False                          # 搜索流程被登录墙/验证码拦截，待「继续抓取」续跑
         self._pending_clarify: Optional[Dict[str, Any]] = None  # 澄清问答状态 {"text":原需求,"stage":1|2}
@@ -75,16 +76,21 @@ class ChatSession:
         self._history: List[Dict[str, str]] = []              # 最近对话窗口（随会话态持久化，LLM 材料源）
 
     # ---------- 对外主入口 ----------
-    def chat(self, user_input: str) -> str:
-        """对外主入口：滑动窗口记录本轮对话（当前输入单独传给解析，不重复计入窗口）"""
-        text = (user_input or "").strip()
-        reply = self._chat_impl(user_input)
-        if text:
-            self._history.append({"role": "user", "text": text})
-            self._history.append({"role": "ai", "text": reply})
-            if len(self._history) > HISTORY_MAX_MSGS:
-                del self._history[:len(self._history) - HISTORY_MAX_MSGS]
-        return reply
+    def chat(self, user_input: str, cancel_check=None) -> str:
+        """对外主入口：滑动窗口记录本轮对话（当前输入单独传给解析，不重复计入窗口）。
+        cancel_check：消息撤回检查点（返回 True 即撤回），搜索链路各检查点轮询实现协作式中止"""
+        self._cancel_check = cancel_check
+        try:
+            text = (user_input or "").strip()
+            reply = self._chat_impl(user_input)
+            if text:
+                self._history.append({"role": "user", "text": text})
+                self._history.append({"role": "ai", "text": reply})
+                if len(self._history) > HISTORY_MAX_MSGS:
+                    del self._history[:len(self._history) - HISTORY_MAX_MSGS]
+            return reply
+        finally:
+            self._cancel_check = None
 
     def _chat_impl(self, user_input: str) -> str:
         text = user_input.strip()
@@ -183,8 +189,14 @@ class ChatSession:
         if req.target_rank is not None and strong_rank:
             return self._flow_confirm_buy(text, req.target_rank)
 
-        # 4.2 如果是调整意见，叠加上次请求
-        if req.is_adjustment and self._last_request is not None:
+        # 4.2 如果是调整意见，叠加上次请求。除 is_adjustment 标记外，
+        #     「第X款 + 条件变更」也算调整（如「第二款不要这种带有黑色元素的，预算升到800」
+        #     没有"换"字，规则引擎的 adjust_markers 探不到）；纯「买第X款」已在上方强意图短路
+        adjust_like = req.is_adjustment or (
+            req.target_rank is not None and (
+                req.require_tags or req.exclude_tags or
+                req.price_max is not None or req.price_min is not None))
+        if adjust_like and self._last_request is not None:
             merged = self._merge_request(self._last_request, req)
             return self._flow_recommend(text, merged)
 
@@ -238,7 +250,11 @@ class ChatSession:
     _PROFILE_QA_KEYS = ["height", "weight", "budget_max", "color_like", "color_dislike",
                         "style_like", "style_dislike", "material_like", "material_dislike",
                         "fit_like", "fit_dislike", "size_habit", "brands_like", "brands_dislike",
-                        "accept_no_name", "dislike_elements", "ship_region"]
+                        "accept_no_name", "dislike_elements", "ship_region",
+                        "age_range", "occupation", "usage_scenario", "climate",
+                        "top_size", "bottom_size", "shoe_size", "skin_type",
+                        "accept_presale", "ship_fee_pref", "after_sale_pref",
+                        "secondary_factor", "priority_order", "special_needs"]
 
     def _looks_like_question(self, text: str) -> bool:
         """短句 + 疑问信号 → 疑似基于上下文的追问（长句视为正常需求，避免误拦）"""
@@ -382,8 +398,13 @@ class ChatSession:
         self._last_chips = []
         return chips
 
-    def _flow_recommend(self, raw_text: str, req: ShoppingRequest) -> str:
+    def _flow_recommend(self, raw_text: str, req: ShoppingRequest, cancel_check=None) -> str:
+        cc = cancel_check or self._cancel_check
+        if cc is not None and cc():
+            return "（消息已撤回，本次搜索已中止）"
         keyword = req.keyword or req.category or "商品"
+        if req.size:
+            keyword = f"{keyword} {req.size}码"
         # 记录为上一次请求（后续可基于此调整）
         self._last_request = req
         self._pending_search = False
@@ -393,9 +414,14 @@ class ChatSession:
         per_plat = max(2, min(10, per_plat))
         try:
             products, block_reason, need_human = self.searcher.search_real(
-                keyword, platforms=req.platforms or None, max_per_platform=per_plat)
+                keyword, platforms=req.platforms or None, max_per_platform=per_plat,
+                cancel_check=cc)
         except Exception as e:
             products, block_reason, need_human = [], f"真实搜索异常：{e}", False
+
+        # 撤回（可能在搜索期间发生）：到此为止，不再过滤/推荐
+        if cc is not None and cc():
+            return "（消息已撤回，本次搜索已中止）"
 
         # 登录墙/验证码：暂停，等用户在弹出的浏览器里自行扫码/验证
         if need_human:
@@ -404,20 +430,40 @@ class ChatSession:
                     f"{block_reason}\n\n"
                     "完成后回复「**继续抓取**」，我会继续为你搜索并推荐。")
 
+        # 硬性条件过滤：解析出的排除词/预算/要求颜色必须在真实搜索结果上真正执行
+        # （此前只在演示模式生效，导致「不要黑色」被无视）
+        hard = bool(req.require_tags or req.exclude_tags
+                    or req.price_max is not None or req.price_min is not None)
+        total = 0
+        drops: Dict[str, int] = {}
+        unverified = 0
         if products:
-            # 无价卡片无法参与比较，先剔除并如实说明
-            no_price = [p for p in products if not p.final_price]
+            # 无价卡片无法参与比较，静默剔除，避免误导性的 ¥0 展示
             products = [p for p in products if p.final_price]
-            if len(products) >= 3:
-                if no_price:
-                    pass  # 数量少时静默剔除，避免误导性的 ¥0 展示
-                products, scores = self.recommender.recommend_from_products(
-                    products, budget=req.price_max, topn=req.top_n or 3)
-                extra = req.summary() or None
-                resp = self.recommender.format_top(products, scores, extra_require=extra)
-                return resp + (
-                    "\n---\n> 以上来自浏览器实时搜索的**真实商品**（价格/图片为搜索页所见，"
-                    "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
+            total = len(products)
+            products, drops, unverified = self._apply_hard_filters(products, req)
+
+        if products and (hard or len(products) >= 3):
+            products, scores = self.recommender.recommend_from_products(
+                products, budget=req.price_max, topn=req.top_n or 3)
+            extra = req.summary() or None
+            resp = self.recommender.format_top(products, scores, extra_require=extra)
+            notes = []
+            if any(drops.values()):
+                seg = "、".join(f"{k}{v}款" for k, v in drops.items() if v)
+                notes.append(f"已按硬性条件剔除：{seg}")
+            if unverified:
+                notes.append(f"{unverified} 款卡片未标注颜色，是否符合颜色要求以商品详情页为准")
+            if req.size:
+                notes.append(f"已将「{req.size}码」并入搜索词；卡片无尺码数据，尺码以商品详情页为准")
+            if notes:
+                resp += "\n---\n> " + "；".join(notes) + "。"
+            return resp + (
+                "\n---\n> 以上来自浏览器实时搜索的**真实商品**（价格/图片为搜索页所见，"
+                "评价等详情未抓取）。想深挖某款，把它的**详情链接**发我，我逐条细抓重新打分。")
+
+        if hard and total > 0:
+            return self._format_filtered_empty(req, drops, total)
 
         # 搜索不足或失败 → 如实告知 + 回退「粘贴链接」老路径
         lines = [
@@ -436,6 +482,80 @@ class ChatSession:
             "你也可以说：",
             "   · `演示模式` —— 用演示数据先看效果（标注「演示数据」）",
             "   · 调整预算/条件，如 `预算升到300`",
+        ]
+        return "\n".join(lines)
+
+    def _apply_hard_filters(self, products: List[Product], req: ShoppingRequest
+                            ) -> Tuple[List[Product], Dict[str, int], int]:
+        """硬性条件过滤（真实搜索结果的执行端）：排除词、预算硬界、要求颜色（多颜色=OR）。
+        颜色未标注的商品保留但计数（回复中如实附注），绝不返回违反用户明示条件的商品。
+        返回 (存活商品, 剔除统计, 颜色未标注数)。"""
+        drops = {"排除词": 0, "超预算": 0, "低于预算": 0, "颜色不符": 0}
+        unverified = 0
+        excl = [t.rstrip("的") for t in (req.exclude_tags or []) if t and len(t.rstrip("的")) <= 8]
+
+        # 要求中的颜色词归一到 recommender 颜色组（白/粉/黑…及别名，如 米白→白色/米色）
+        req_color_canons = set()
+        for t in (req.require_tags or []):
+            t = t.rstrip("的")
+            if t in COLOR_KEYWORDS:
+                req_color_canons.add(t)
+            else:
+                for canon, alts in COLOR_KEYWORDS.items():
+                    if t in alts:
+                        req_color_canons.add(canon)
+
+        def text_of(p: Product) -> str:
+            return " ".join([p.name] + list(p.tags or []) + [p.category or ""]).lower()
+
+        def color_hits(p: Product) -> set:
+            t = text_of(p)
+            hits = set()
+            for canon, alts in COLOR_KEYWORDS.items():
+                if any(w and w.lower() in t for w in ({canon} | set(alts))):
+                    hits.add(canon)
+            return hits
+
+        kept: List[Product] = []
+        for p in products:
+            t = text_of(p)
+            if any(w.lower() in t for w in excl):
+                drops["排除词"] += 1
+                continue
+            if req.price_max is not None and p.final_price > req.price_max:
+                drops["超预算"] += 1
+                continue
+            if req.price_min is not None and p.final_price < req.price_min:
+                drops["低于预算"] += 1
+                continue
+            if req_color_canons:
+                hits = color_hits(p)
+                if hits and not (hits & req_color_canons):
+                    drops["颜色不符"] += 1
+                    continue
+                if not hits:
+                    unverified += 1
+            kept.append(p)
+        return kept, drops, unverified
+
+    def _format_filtered_empty(self, req: ShoppingRequest, drops: Dict[str, int], total: int) -> str:
+        """硬性条件过滤后无存活商品时的如实说明：给出去向统计，绝不拿违规商品凑数。"""
+        det = []
+        if drops.get("排除词"):
+            det.append(f"命中排除词（{'、'.join((req.exclude_tags or [])[:3])}）：{drops['排除词']} 款")
+        if drops.get("超预算"):
+            det.append(f"超出预算 ≤¥{req.price_max:g}：{drops['超预算']} 款")
+        if drops.get("低于预算"):
+            det.append(f"低于预算下限 ≥¥{req.price_min:g}：{drops['低于预算']} 款")
+        if drops.get("颜色不符"):
+            det.append(f"颜色不符（要求 {'/'.join(t for t in (req.require_tags or []) if t in _COLOR_WORDS)}）：{drops['颜色不符']} 款")
+        lines = ["**搜索完成，但没有符合你硬性条件的商品**", ""]
+        lines += [f"   · {d}" for d in det]
+        lines += [
+            "",
+            f"本次共抓到 {total} 款真实商品，全部被硬性条件过滤——我不会拿不符合你明示条件的商品凑数推荐。",
+            "",
+            "可以放宽某项条件重搜，例如：`黑色也可以看看` / `预算提到500` / `颜色不限，只要透气`",
         ]
         return "\n".join(lines)
 
@@ -486,12 +606,18 @@ class ChatSession:
 
     def _flow_grab_and_compare(self, urls: List[str]) -> str:
         """逐个抓取用户粘贴的商品链接，打分对比后输出 TOP-N（默认3，可指定如「前5名」）"""
+        cc = self._cancel_check
+        if cc is not None and cc():
+            return "（消息已撤回，本次抓取已中止）"
         lines = [f"收到 {len(urls)} 个商品链接，正在用真实浏览器逐个抓取……"]
         lines.append("（请保持浏览器窗口可见，如遇验证码请手动完成并回复「继续抓取」）")
         lines.append("")
 
         # 逐个抓取
-        products, block_reason = self.searcher.grab_from_urls(urls)
+        products, block_reason = self.searcher.grab_from_urls(urls, cancel_check=cc)
+        # 撤回（可能在抓取期间发生）：到此为止，不入待续抓状态
+        if cc is not None and cc():
+            return "（消息已撤回，本次抓取已中止）"
         # 检测到验证码/滑块拦截 → 保存URL以便"继续抓取"重试
         if block_reason and "继续抓取" in block_reason:
             self._pending_urls = list(urls)
@@ -559,15 +685,36 @@ class ChatSession:
         lines.append("你可以：把这个链接加入购物车 `把当前商品加入购物车`，或继续粘贴更多链接对比。")
         return "\n".join(lines)
 
+    def _clean_delta_keyword(self, kw: Optional[str]) -> Optional[str]:
+        """调整类请求的 delta 关键词准入校验：剥掉颜色词后须是干净名词短语
+        （≤12 字、无数字/预算噪声），否则视为残片拒收——防止「粉色+白色 预算升到8」
+        这类垃圾关键词顶掉上一轮搜索词，导致调整后搜出毫不相干的商品。"""
+        kw = (kw or "").strip()
+        if not kw:
+            return None
+        for cw in _COLOR_WORDS:
+            if cw in kw:
+                kw = kw.replace(cw, "").strip()
+        if not kw or len(kw) > 12 or re.search(r"[\d+]|预算|升到|加到|提到|以内|以下|以上|左右", kw):
+            return None
+        # 序号指代与指示/残片词不能当搜索词（第二款/这种带有 元素 …）
+        if re.search(r"第\s*[一二三四五六七八九十\d]+\s*[款个号]", kw):
+            return None
+        if any(frag in kw for frag in ("这种", "那种", "这类", "那类", "带有", "元素", "样式", "感觉", "样子")):
+            return None
+        return kw
+
     def _merge_request(self, base: ShoppingRequest, delta: ShoppingRequest) -> ShoppingRequest:
         """合并「增量调整」请求到上一次请求"""
         merged = ShoppingRequest(raw=delta.raw)
-        merged.keyword = delta.keyword or base.keyword
+        # 关键词保护：delta 关键词须通过干净词校验才允许顶掉上一轮搜索词，否则沿用 base
+        merged.keyword = self._clean_delta_keyword(delta.keyword) or base.keyword
         merged.category = delta.category or base.category
         merged.price_min = delta.price_min if delta.price_min is not None else base.price_min
         merged.price_max = delta.price_max if delta.price_max is not None else base.price_max
         merged.platforms = delta.platforms or list(base.platforms)
         merged.purpose = delta.purpose or base.purpose
+        merged.size = delta.size or base.size
         merged.is_adjustment = False
         # 条数：用户本次明示则用新值，否则沿用上次
         merged.top_n = delta.top_n if delta.top_n is not None else base.top_n
@@ -649,7 +796,12 @@ class ChatSession:
                 if not all_ids:
                     return "暂无订单，无法发起售后。"
                 oid = all_ids[0]
-            return self.orders.apply_after_sale(oid, reason)
+            resp = self.orders.apply_after_sale(oid, reason)
+            o = self.orders.get_order(oid)
+            if o is not None and o.status == "售后":
+                # 完整回执入消息站，对话内只留轻确认（操作信息不挤占对话区）
+                return f"售后申请已提交（订单 {oid}），完整回执已存入侧边栏「消息站」。"
+            return resp
 
         # 取消订单
         m = re.match(r"^取消(?:订单)?\s*[:：]?\s*(OD?\w*)", t)
@@ -661,7 +813,11 @@ class ChatSession:
             tail = t.replace(m.group(0), "", 1).strip("，,。 ")
             if tail:
                 reason = tail
-            return self.orders.cancel_order(oid, reason)
+            resp = self.orders.cancel_order(oid, reason)
+            o = self.orders.get_order(oid)
+            if o is not None and o.status == "已取消":
+                return f"已为你取消订单 {oid}，完整回执已存入侧边栏「消息站」。"
+            return resp
 
         # 比价 / 优惠券 / 售后政策 — 在推荐基础上简单响应
         if t in ("比价", "对比价格", "看优惠券", "有什么券", "售后政策"):
@@ -920,6 +1076,14 @@ class ChatSession:
             ai_cfg = ai_client.get_config()
         except Exception:
             pass
+        stations = {}
+        try:
+            from message_center import message_center
+            from trash_bin import trash_bin
+            stations = {"messages_unread": message_center.unread_count(),
+                        "trash_count": trash_bin.count()}
+        except Exception:
+            stations = {"messages_unread": 0, "trash_count": 0}
         return {
             "profile": self.profile.get_all(),
             "last_request": self._last_request.summary() if self._last_request else None,
@@ -929,6 +1093,7 @@ class ChatSession:
             "data_source_blocked": bool(getattr(self.searcher, "_last_block_reason", "")),
             "llm": ai_cfg,
             "vision_enabled": _VISION_AVAILABLE and (ai_cfg.get("enabled") if ai_cfg else False),
+            **stations,
         }
 
     # ---------- 会话状态序列化（多会话持久化，配合 session_store） ----------
@@ -1001,6 +1166,7 @@ class ChatSession:
                     needs_clarify=[str(x) for x in (d.get("needs_clarify") or [])],
                     top_n=d.get("top_n"),
                     per_platform_n=d.get("per_platform_n"),
+                    size=d.get("size"),
                 )
             except Exception:
                 self._last_request = None
@@ -1042,13 +1208,21 @@ class ChatSession:
                 self._pending_order = None
 
     # ============== 多模态图片处理 ==============
-    def chat_with_images(self, images: List[str], text: str = "") -> str:
+    def chat_with_images(self, images: List[str], text: str = "", cancel_check=None) -> str:
         """
         图片处理主入口。
         images: base64 data URI 列表（如 "data:image/jpeg;base64,..."）
         text: 用户附带的文字指令
         根据图片数量和指令自动分发到场景A（单图找同款）或场景B（多图对比）。
+        cancel_check：消息撤回检查点（与 chat() 同源，供下游搜索链路轮询）
         """
+        self._cancel_check = cancel_check
+        try:
+            return self._chat_with_images_impl(images, text)
+        finally:
+            self._cancel_check = None
+
+    def _chat_with_images_impl(self, images: List[str], text: str = "") -> str:
         if not images:
             return "未检测到图片内容。"
 

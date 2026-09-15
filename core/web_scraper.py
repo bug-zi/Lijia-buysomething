@@ -741,10 +741,12 @@ LOGIN_URLS = {
 }
 
 
-def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180) -> bool:
+def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180,
+                         cancel_check=None) -> bool:
     """当前浏览器窗口内跳转登录页，原地等待用户扫码（浏览器保持打开，无多窗口抢 profile）。
     登录成功（context 内任意标签页跳离登录域）返回 True；超时/用户关窗返回 False。
-    会话写入持久化 profile（.browser_profile），登录一次后短期内无需重复扫码。"""
+    会话写入持久化 profile（.browser_profile），登录一次后短期内无需重复扫码。
+    cancel_check：消息撤回检查点，True 即停止等待（返回 False 交由上层收尾）。"""
     try:
         page.goto(LOGIN_URLS[platform], wait_until="domcontentloaded", timeout=30000)
     except Exception:
@@ -752,6 +754,8 @@ def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180) -> bool:
     deadline = time.time() + max_wait_s
     probe_fails = 0
     while time.time() < deadline:
+        if cancel_check is not None and cancel_check():
+            return False   # 消息已撤回：不再原地等扫码
         # 关窗检测必须用真实 RPC 往返（page.title）：page.is_closed()/page.url 都是本地状态，
         # 用户直接关窗（进程退出）时 close 事件可能永远不送达，二者会恒为 False/旧值，曾致假「登录中」卡死。
         # 导航瞬间 RPC 也可能偶发报错，故连续 3 次（约 6s）失败才判定关窗，避免误杀进行中的登录。
@@ -775,16 +779,20 @@ def _goto_login_and_wait(page, platform: str, max_wait_s: int = 180) -> bool:
 
 
 def search_platform(keyword: str, platform: str, max_results: int = 8,
-                    headless: bool = False) -> Dict[str, Any]:
+                    headless: bool = False, cancel_check=None) -> Dict[str, Any]:
     """
     限量搜索：打开平台搜索结果页，抓取前 min(max_results, 10) 条商品卡片。
     返回 {"platform", "keyword", "cards": [...], "block_reason", "need_human", "data_source"}。
     卡片字段：name/price_text/image/seller/sales_text/url。拿不到的字段留空，绝不编造。
+    cancel_check：消息撤回检查点——入口已取消则不启动浏览器；卡片提取间取消即中止。
     """
     result: Dict[str, Any] = {
         "platform": platform, "keyword": keyword, "cards": [],
         "block_reason": "", "need_human": False, "data_source": "真实",
     }
+    if cancel_check is not None and cancel_check():
+        result["block_reason"] = "消息已撤回，搜索中止"
+        return result
     site = SEARCH_SITES.get(platform)
     if not site:
         result["block_reason"] = f"暂不支持{platform}的搜索页抓取（如实告知，非编造）"
@@ -834,7 +842,7 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
             if is_login and platform in LOGIN_URLS and round_i == 0:
                 # 同窗口登录：浏览器保持打开原地等扫码（最多 3 分钟），成功后自动重搜；
                 # 登录一次写入持久化 profile，短期内无需重复扫码
-                ok = _goto_login_and_wait(page, platform)
+                ok = _goto_login_and_wait(page, platform, cancel_check=cancel_check)
                 if ok:
                     config_store.record_state(platform, "已登录", "抓取扫码")
                     continue
@@ -867,6 +875,8 @@ def search_platform(keyword: str, platform: str, max_results: int = 8,
 
         n = max(1, min(max_results, 10))   # 克制上限：单平台 ≤10 条
         for card in cards[:n]:
+            if cancel_check is not None and cancel_check():
+                break   # 消息已撤回：停止提取剩余卡片，浏览器随即收尾
             c = {
                 "name": _first_text(card, site["name"]),
                 "price_text": _first_text(card, site["price"], limit=30),

@@ -266,6 +266,18 @@ def _write_and_apply(api_key: str, base_url: str, model: str, provider: str) -> 
 
 def clear_api_key() -> Dict[str, Any]:
     """删除本地配置（环境变量若仍存在则依然优先使用环境变量）；并重置内存统计（成功/失败计数清0）"""
+    # 先归档进回收站（3 天内可还原；本地存储安全级等同 api_key.json 本体）
+    try:
+        if os.path.exists(_key_file()):
+            with open(_key_file(), "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            if isinstance(cfg, dict) and cfg.get("api_key"):
+                from trash_bin import trash_bin
+                trash_bin.add("apikey", f"API Key 配置（{cfg.get('provider') or '自定义'}）",
+                              f"provider={cfg.get('provider') or '自定义'} · model={cfg.get('model') or '-'} · base={cfg.get('base_url') or '-'}",
+                              {"config": cfg})
+    except Exception:
+        pass
     try:
         if os.path.exists(_key_file()): os.remove(_key_file())
     except OSError:
@@ -282,6 +294,14 @@ def clear_api_key() -> Dict[str, Any]:
         if not c.api_key and not os.getenv(ENV_API_KEY):
             c.api_key = c.base_url = c.model = c.provider = ""
     return {"ok": True, "message": "本地 API Key 已删除。", "config": get_config()}
+
+
+def restore_key_config(api_key: str, base_url: str, model: str, provider: str) -> Dict[str, Any]:
+    """从回收站还原 Key 配置：直接写回本地并应用（不再做联网探测）"""
+    if not api_key:
+        return {"ok": False, "message": "归档数据缺少 api_key，无法还原。", "config": get_config()}
+    _write_and_apply(api_key, base_url or "", model or "", provider or "自定义")
+    return {"ok": True, "message": "API Key 配置已还原。", "config": get_config()}
 
 
 # ============== 底层 HTTP 调用 ==============
@@ -446,13 +466,14 @@ def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
     sys_prompt = """你是严格的JSON输出器，只输出一个JSON对象。
 任务：把用户的购物自然语言输入解析为结构化购物需求（中文）。
 必须包含字段：
-  query: string            主搜索关键词/品类，例如「雪纺连衣裙」
+  query: string|null       主搜索关键词/品类，例如「雪纺连衣裙」；若本次只是调整颜色/预算/尺码等条件而没换品类，必须填null（沿用上一轮品类，严禁脑补合并出新品类词）
+  size: string|null        尺码/鞋码，如「42码」填"42"；没提则null
   category: string         粗略品类（裙子/上衣/裤子/鞋/配饰/数码/美妆/家居/食品/书籍/其他），只填一个
   budget_min: number|null  预算下限，元
   budget_max: number|null  预算上限，元
   platforms: string[]      允许的电商平台（淘宝/天猫/京东/拼多多/抖音商城 之一或多个；如用户没提就返回空数组）
-  require_tags: string[]   硬性要求关键词，例如「修身」「纯棉」「V领」「法式」
-  exclude_tags: string[]   避雷关键词，例如「宽松」「涤纶」「紫色」
+  require_tags: string[]   硬性要求关键词，例如「修身」「纯棉」「V领」「法式」。用户正面要求的词才放这里
+  exclude_tags: string[]   避雷关键词，例如「宽松」「涤纶」「紫色」。用户「不要/避开/讨厌」提到的词（如颜色）必须放这里，严禁放进require_tags
   use: string|null         用途场景，如通勤/约会/运动/送礼
   style: string|null       风格，如法式/美式休闲/甜酷/通勤
   is_adjustment: boolean   如果用户是"换"或"调"类请求，true；否则false

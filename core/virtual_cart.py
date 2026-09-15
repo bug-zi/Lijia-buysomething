@@ -11,11 +11,20 @@
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from typing import List, Dict, Any, Optional
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 CART_FILE = os.path.join(BASE_DIR, "virtual_cart.json")
+
+
+def _to_trash(ttype: str, title: str, summary: str, data: Dict[str, Any]) -> None:
+    """删除数据归档进回收站；失败静默不影响主流程"""
+    try:
+        from trash_bin import trash_bin
+        trash_bin.add(ttype, title, summary, data)
+    except Exception:
+        pass
 
 
 @dataclass
@@ -97,14 +106,41 @@ class VirtualCart:
         if 1 <= index <= len(self.items):
             it = self.items.pop(index - 1)
             self._save()
+            _to_trash("cart_item", it.name,
+                      f"{it.name}（{it.platform}）¥{it.current_price:.1f}", {"item": it.to_dict()})
             return f"已从购物车移除第{index}项：{it.name}"
         return f"购物车没有第{index}项（当前共{len(self.items)}项）"
 
     def clear(self) -> str:
         n = len(self.items)
+        if n:
+            _to_trash("cart_clear", f"虚拟购物车（{n} 项）",
+                      "、".join(f"{it.name}（{it.platform}）" for it in self.items[:5]) + ("…" if n > 5 else ""),
+                      {"items": [it.to_dict() for it in self.items]})
         self.items.clear()
         self._save()
         return f"已清空购物车（共{n}项）"
+
+    def add_item(self, d: Dict[str, Any]) -> str:
+        """整条还原一个购物车条目（回收站还原用）；同名同平台仍按去重规则更新价格"""
+        import time as _t, uuid as _uuid
+        d = dict(d or {})
+        for it in self.items:
+            if it.name == d.get("name") and it.platform == d.get("platform"):
+                it.current_price = float(d.get("current_price") or 0)
+                it.added_at = d.get("added_at") or it.added_at
+                if d.get("note"):
+                    it.note = d["note"]
+                if d.get("history_low"):
+                    it.history_low = d["history_low"]
+                self._save()
+                return f"已还原「{it.name}」（与现有条目合并）"
+        d.setdefault("id", str(_uuid.uuid4())[:8])
+        d.setdefault("added_at", _t.strftime("%Y-%m-%d %H:%M:%S"))
+        known = {f.name for f in fields(CartItem)}
+        self.items.append(CartItem(**{k: v for k, v in d.items() if k in known}))
+        self._save()
+        return f"已还原「{d.get('name')}」到购物车"
 
     def set_note(self, index: int, note: str) -> str:
         if 1 <= index <= len(self.items):

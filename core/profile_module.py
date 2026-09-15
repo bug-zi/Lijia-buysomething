@@ -14,64 +14,91 @@ from typing import Dict, Optional, Any
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 PROFILE_FILE = os.path.join(BASE_DIR, "user_profile.json")
 
-# 档案字段定义与中文名称映射
+# 必填集合：决定推荐准确度与下单流程的最低字段集（其余全部为选填）
+REQUIRED_FIELDS = (
+    "height", "weight", "size_habit", "color_like", "color_dislike",
+    "budget_max", "priority_factor", "receiver", "phone", "address",
+)
+
+# 档案字段定义与中文名称映射（必填在前，选填按「个人画像/风格审美/材质气候/品牌渠道/决策服务」分组）
 PROFILE_FIELDS = {
+    # ---- 必填：体型与色彩基础 + 预算决策 + 收货信息 ----
     "height": "身高(cm)",
     "weight": "体重(kg)",
-    "shoulder": "肩宽(cm，可选)",
-    "waist": "腰围(cm，可选)",
     "size_habit": "尺码习惯(偏宽松/合身/偏紧，选码偏大/偏小)",
-    "color_like": "喜爱色系",
-    "color_dislike": "避雷颜色",
-    "style_like": "风格偏好(如日系简约/美式休闲/通勤正式等，可2-3个)",
+    "color_like": "喜爱色系(多个用逗号)",
+    "color_dislike": "避雷颜色(多个用逗号)",
+    "budget_max": "预算上限(元，作为默认预算)",
+    "priority_factor": "优先因素(价格/质量/颜值/耐用/品牌/发货速度)",
+    "receiver": "收货人姓名(用于下单)",
+    "phone": "联系电话(用于下单)",
+    "address": "收货地址(用于下单)",
+    # ---- 选填：个人画像与体型尺码 ----
+    "age_range": "年龄段(如 18-24/25-30/30-40/40+)",
+    "occupation": "职业(如学生/上班族/教师)",
+    "shoulder": "肩宽(cm)",
+    "waist": "腰围(cm)",
+    "top_size": "上装尺码(如 M/170/92A)",
+    "bottom_size": "下装尺码(如 32/170/74A)",
+    "shoe_size": "鞋码(如 42)",
+    "skin_type": "肤质(如敏感肌/油性)",
+    # ---- 选填：风格审美与场景 ----
+    "style_like": "风格偏好(如日系简约/美式休闲/通勤正式，可2-3个)",
+    "fit_like": "版型偏好(如修身/收腰/宽松)",
+    "fit_dislike": "版型避雷",
+    "usage_scenario": "常用场景(如通勤/运动/居家/旅行，多个用逗号)",
+    "dislike_elements": "讨厌的元素(通用兜底，如荧光色/廉价拉链)",
+    "other_preference": "其他偏好(如配饰偏好/忌口/特殊需求等)",
+    # ---- 选填：材质与气候 ----
     "material_like": "材质偏好(喜欢的面料)",
     "material_dislike": "材质避雷(不喜欢的面料)",
-    "fit_like": "版型偏好",
-    "fit_dislike": "版型避雷",
-    "skin_type": "肤质(可选)",
-    "other_preference": "其他偏好(可选，如配饰偏好/忌口/特殊需求等)",
-    "address": "收货地址(可选，用于下单)",
-    "phone": "联系电话(可选，用于下单)",
-    "receiver": "收货人姓名(可选，用于下单)",
-    # ---- 全流程增强新增字段（按新规格补齐）----
-    "budget_max": "预算上限(元，可选，作为默认预算)",
-    "priority_factor": "优先因素(价格/质量/颜值/耐用/品牌/发货速度)",
-    "secondary_factor": "次要因素(同上选项之一)",
+    "climate": "所在气候(如南方湿热/北方干冷/四季分明)",
+    # ---- 选填：品牌与渠道 ----
     "brands_like": "品牌偏好-允许(多个用逗号)",
     "brands_dislike": "品牌偏好-排除(多个用逗号)",
     "accept_no_name": "是否接受杂牌(是/否)",
     "accept_presale": "是否接受预售(是/否)",
     "ship_region": "发货地区偏好(如江浙沪/广东/不限)",
-    "dislike_elements": "讨厌的元素(通用兜底，如荧光色/廉价拉链)",
-    "special_needs": "特殊需求(如礼盒包装/加急)",
-    # ---- 新规格字段 ----
+    # ---- 选填：决策与服务 ----
+    "secondary_factor": "次要因素(价格/质量/颜值/耐用/品牌/发货速度)",
+    "priority_order": "选购优先级排序(价格/品质/外观/发货速度/品牌，可多选逗号分隔)",
     "ship_fee_pref": "运费偏好(优先免运费/无所谓)",
-    "after_sale_pref": "售后偏好(优先7天无理由+运费险)",
-    "priority_order": "选购优先级(价格/品质/外观/发货速度/品牌，可多选逗号分隔)",
+    "after_sale_pref": "售后偏好(如优先7天无理由+运费险)",
+    "special_needs": "特殊需求(如礼盒包装/加急)",
 }
 
-# 分批收集的引导顺序（避免一次性抛出长表单；同一批次只放"同类语义"字段，防止逗号多值被错位分配）
+# 分批收集的引导顺序（必填在前，选填按角度分组靠后；同一批次只放"同类语义"字段，
+# 防止逗号多值被错位分配；多字段批次内各字段应为单值，多值字段独占批次）
 COLLECT_STEPS = [
+    # —— 必填批次 ——
     ["height", "weight"],
-    ["shoulder", "waist"],
     ["size_habit"],
     ["color_like"],
     ["color_dislike"],
-    ["style_like"],
-    ["material_like"],
-    ["material_dislike"],
-    ["fit_like"],
-    ["fit_dislike"],
-    ["skin_type", "other_preference"],
-    ["receiver", "phone", "address"],
-    # 新增批次：全流程增强字段
     ["budget_max"],
-    ["priority_factor", "secondary_factor"],
+    ["priority_factor"],
+    ["receiver", "phone", "address"],
+    # —— 选填批次：个人画像与体型尺码 ——
+    ["age_range", "occupation"],
+    ["shoulder", "waist"],
+    ["top_size", "bottom_size", "shoe_size"],
+    ["skin_type", "climate"],
+    # —— 选填批次：风格审美与场景 ——
+    ["style_like"],
+    ["usage_scenario"],
+    ["fit_like", "fit_dislike"],
+    ["material_like", "material_dislike"],
+    ["dislike_elements", "other_preference"],
+    # —— 选填批次：品牌与渠道 ——
     ["brands_like"],
     ["brands_dislike"],
     ["accept_no_name", "accept_presale"],
-    ["ship_region", "dislike_elements", "special_needs"],
-    ["ship_fee_pref", "after_sale_pref", "priority_order"],
+    ["ship_region"],
+    # —— 选填批次：决策与服务 ——
+    ["secondary_factor"],
+    ["priority_order"],
+    ["ship_fee_pref", "after_sale_pref"],
+    ["special_needs"],
 ]
 
 
@@ -123,12 +150,17 @@ class ProfileManager:
         return f"已更新【{label}】为：{value}"
 
     def update_batch(self, data: Dict[str, Any]) -> str:
-        """批量更新字段"""
+        """批量更新字段；空字符串表示清空该字段（删除键，档案恢复为未填写）"""
         updates = []
         for k, v in data.items():
+            if isinstance(v, str):
+                v = v.strip()
             if v:
                 self.profile[k] = v
                 updates.append(f"{PROFILE_FIELDS.get(k, k)}={v}")
+            elif k in self.profile:
+                del self.profile[k]
+                updates.append(f"{PROFILE_FIELDS.get(k, k)}=（已清空）")
         self._save()
         if updates:
             return "已更新以下字段：\n" + "\n".join(f"  · {u}" for u in updates)
@@ -144,15 +176,35 @@ class ProfileManager:
         return f"字段 '{key}' 不存在或为空"
 
     def clear_all(self) -> str:
-        """清空全部档案"""
+        """清空全部档案（先归档进回收站，3 天内可还原）"""
+        if any(v for v in self.profile.values() if v):
+            try:
+                from trash_bin import trash_bin
+                filled = {k: v for k, v in self.profile.items() if v}
+                trash_bin.add("profile", "个人购物偏好档案",
+                              f"{len(filled)} 项已填写内容整体归档",
+                              {"profile": dict(filled)})
+            except Exception:
+                pass
         self.profile.clear()
         self._save()
         self._collect_step_index = 0
         return "已清空全部档案"
 
+    def restore_merge(self, data: Dict[str, Any]) -> int:
+        """从回收站还原档案：合并写入非空字段（不覆盖现有非空值），返回还原字段数"""
+        n = 0
+        for k, v in (data or {}).items():
+            if v and not self.profile.get(k):
+                self.profile[k] = v
+                n += 1
+        if n:
+            self._save()
+        return n
+
     # ---------- 查看 ----------
     def view_profile(self) -> str:
-        """以清晰表格形式输出档案"""
+        """以清晰表格形式输出档案（必填/选填分节，与用户中心表单分组一致）"""
         if self.is_empty():
             return "个人档案为空，使用「录入档案」或直接告诉我身高体重等信息开始建立档案。"
 
@@ -162,7 +214,18 @@ class ProfileManager:
         lines.append("=" * 50)
         lines.append(f"{'字段':<20} | {'值'}")
         lines.append("-" * 50)
+        lines.append("【必填】（决定推荐准确度与下单流程）")
         for key, label in PROFILE_FIELDS.items():
+            if key not in REQUIRED_FIELDS:
+                continue
+            value = self.profile.get(key, "")
+            value_str = str(value) if value else "— 未填写 —"
+            lines.append(f"{label:<20} | {value_str}")
+        lines.append("-" * 50)
+        lines.append("【选填】（填得越全，推荐越准）")
+        for key, label in PROFILE_FIELDS.items():
+            if key in REQUIRED_FIELDS:
+                continue
             value = self.profile.get(key, "")
             value_str = str(value) if value else "— 未填写 —"
             lines.append(f"{label:<20} | {value_str}")

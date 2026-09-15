@@ -1,0 +1,67 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img "logo" [ref=e6]
+      - generic [ref=e7]: 购物AI助手
+    - navigation [ref=e8]:
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: chat_bubble
+        - generic [ref=e12]: 对话购物
+      - generic [ref=e13] [cursor=pointer]:
+        - generic [ref=e14]: inventory_2
+        - generic [ref=e16]: 订单 & 物流
+      - generic [ref=e17] [cursor=pointer]:
+        - generic [ref=e18]: checklist
+        - generic [ref=e20]: 购物清单
+      - generic [ref=e21] [cursor=pointer]:
+        - generic [ref=e22]: shopping_cart
+        - generic [ref=e24]: 虚拟购物车
+      - generic [ref=e25] [cursor=pointer]:
+        - generic [ref=e26]: emoji_events
+        - generic [ref=e28]: TOP3 推荐
+      - generic [ref=e29] [cursor=pointer]:
+        - generic [ref=e30]: person
+        - generic [ref=e32]: 用户中心
+      - generic [ref=e33] [cursor=pointer]:
+        - generic [ref=e34]: settings
+        - generic [ref=e36]: 配置库
+    - generic [ref=e38]:
+      - generic [ref=e39]: lightbulb
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - code [ref=e193]: 换更便宜的
+          - text: 、
+          - code [ref=e194]: 给我前5名
+          - text: ，随时调整推荐结果
+        - generic [ref=e44]:
+          - generic [ref=e45] [cursor=pointer]
+          - generic [ref=e46] [cursor=pointer]
+          - generic [ref=e47] [cursor=pointer]
+          - generic [ref=e48] [cursor=pointer]
+          - generic [ref=e49] [cursor=pointer]
+          - generic [ref=e50] [cursor=pointer]
+          - generic [ref=e51] [cursor=pointer]
+          - generic [ref=e52] [cursor=pointer]
+          - generic [ref=e53] [cursor=pointer]
+          - generic [ref=e54] [cursor=pointer]
+  - main [ref=e72]:
+    - generic [ref=e73]:
+      - heading "TOP3 推荐 · 多维度打分横评" [level=2] [ref=e195]
+      - generic [ref=e75]:
+        - generic [ref=e76]: 后端已连接
+        - generic [ref=e78]: 档案为空
+        - generic [ref=e80]: v1.0 · 零第三方依赖
+      - generic [ref=e82]:
+        - button "dark_mode" [ref=e85] [cursor=pointer]
+        - button "temp_ab_01 T" [ref=e130] [cursor=pointer]:
+          - generic [ref=e89]: temp_ab_01
+          - generic [ref=e90]: T
+    - generic [ref=e197]:
+      - generic [ref=e199]:
+        - generic [ref=e200]: emoji_events
+        - text: 最近一次 TOP3 推荐
+        - button "查看说明" [ref=e202] [cursor=pointer]:
+          - generic [ref=e203]: info
+      - generic [ref=e204]:
+        - generic [ref=e205]: emoji_events
+        - text: 还没有推荐结果 — 到「对话购物」里提需求，比如 「买连衣裙 预算200以内」，推荐结果会同步显示在这里。

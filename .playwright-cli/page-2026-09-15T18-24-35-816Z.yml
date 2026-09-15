@@ -1,0 +1,65 @@
+- generic [ref=f1e2]:
+  - complementary [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - img "logo" [ref=f1e6]
+      - generic [ref=f1e7]: 购物AI助手
+    - navigation [ref=f1e8]:
+      - generic [ref=f1e9] [cursor=pointer]:
+        - generic [ref=f1e10]: chat_bubble
+        - generic [ref=f1e12]: 对话购物
+      - generic [ref=f1e13] [cursor=pointer]:
+        - generic [ref=f1e14]: inventory_2
+        - generic [ref=f1e16]: 订单 & 物流
+      - generic [ref=f1e17] [cursor=pointer]:
+        - generic [ref=f1e18]: checklist
+        - generic [ref=f1e20]: 购物清单
+      - generic [ref=f1e21] [cursor=pointer]:
+        - generic [ref=f1e22]: shopping_cart
+        - generic [ref=f1e24]: 虚拟购物车
+      - generic [ref=f1e25] [cursor=pointer]:
+        - generic [ref=f1e26]: emoji_events
+        - generic [ref=f1e28]: TOP3 推荐
+      - generic [ref=f1e29] [cursor=pointer]:
+        - generic [ref=f1e30]: person
+        - generic [ref=f1e32]: 用户中心
+      - generic [ref=f1e33] [cursor=pointer]:
+        - generic [ref=f1e34]: settings
+        - generic [ref=f1e36]: 配置库
+    - generic [ref=f1e38]:
+      - generic [ref=f1e39]: lightbulb
+      - generic [ref=f1e41]:
+        - generic [ref=f1e42]: 「配置库」可扫码登录京东/淘宝，凭据绝不过手
+        - generic [ref=f1e44]:
+          - generic [ref=f1e45] [cursor=pointer]
+          - generic [ref=f1e46] [cursor=pointer]
+          - generic [ref=f1e47] [cursor=pointer]
+          - generic [ref=f1e48] [cursor=pointer]
+          - generic [ref=f1e49] [cursor=pointer]
+          - generic [ref=f1e50] [cursor=pointer]
+          - generic [ref=f1e51] [cursor=pointer]
+          - generic [ref=f1e52] [cursor=pointer]
+          - generic [ref=f1e53] [cursor=pointer]
+          - generic [ref=f1e54] [cursor=pointer]
+  - main [ref=f1e55]:
+    - generic [ref=f1e56]:
+      - heading "订单 & 物流 · 实时跟踪售后进度" [level=2] [ref=f1e406]
+      - generic [ref=f1e58]:
+        - generic [ref=f1e59]: 后端已连接
+        - generic [ref=f1e61]: 必填缺9项
+        - generic [ref=f1e63]: v1.0 · 零第三方依赖
+      - generic [ref=f1e65]:
+        - button "dark_mode" [ref=f1e68] [cursor=pointer]
+        - button "pw_dialog_test P" [ref=f1e71] [cursor=pointer]:
+          - generic [ref=f1e72]: pw_dialog_test
+          - generic [ref=f1e73]: P
+    - generic [ref=f1e408]:
+      - generic [ref=f1e409]:
+        - generic [ref=f1e410]:
+          - generic [ref=f1e411]: inventory_2
+          - text: 订单列表
+        - button "refresh 刷新" [ref=f1e413] [cursor=pointer]:
+          - generic [ref=f1e414]: refresh
+          - text: 刷新
+      - generic [ref=f1e416]:
+        - generic [ref=f1e417]: inventory_2
+        - text: 暂无订单，去「对话购物」下单吧！

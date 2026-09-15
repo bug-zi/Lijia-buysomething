@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -145,6 +146,28 @@ class AccountStore:
                     self._write(data)
                     return True
         return False
+
+    def delete_account(self, username: str, password: str) -> Dict[str, Any]:
+        """注销：验密后移除账户条目并删除其数据目录（不可恢复）"""
+        username = (username or "").strip()
+        with _lock:
+            data = self._read()
+            a = data["accounts"].get(username)
+            if not a:
+                return {"ok": False, "error": "账户不存在。"}
+            if a.get("password_hash") != _hash_password(password or "", a.get("salt", "")):
+                return {"ok": False, "error": "密码不正确。"}
+            del data["accounts"][username]
+            self._write(data)
+            # 目录名净化与 data_dir() 同规则；realpath 收敛在 DATA_ROOT 下才删（防路径意外）
+            safe = "".join(c for c in username if c not in '\\/:*?"<>|')
+            user_dir = os.path.realpath(os.path.join(DATA_ROOT, safe))
+            root = os.path.realpath(DATA_ROOT)
+            if user_dir != root and user_dir.startswith(root + os.sep) and os.path.isdir(user_dir):
+                shutil.rmtree(user_dir, ignore_errors=True)
+            # data_dir() 的"已建目录"缓存同步失效：否则同名账户再注册时目录缺、写文件即 FileNotFoundError
+            _made_dirs.discard(os.path.join(DATA_ROOT, safe))
+        return {"ok": True}
 
     def resolve(self, token: str) -> Optional[Dict[str, Any]]:
         """token → 账户公开信息；无效返回 None"""
@@ -295,4 +318,20 @@ if __name__ == "__main__":
         got = ex.submit(wrapped).result()
     assert got == os.path.join(DATA_ROOT, "小明", "x.json"), "bound 应在线程内恢复上下文"
 
-    print("account_manager 冒烟通过：校验/注册/登录/登出/token持久化/上下文路径/迁移/线程传播")
+    # 10) 注销：密码错误不删；密码正确条目+目录都消失、旧 token 失效；目录缺失仅删条目
+    rd = store.register("注销用户", "del@x.com", "pass1234")
+    assert rd["ok"], rd
+    udir = os.path.join(DATA_ROOT, "注销用户")
+    os.makedirs(udir, exist_ok=True)
+    open(os.path.join(udir, "user_center.json"), "w", encoding="utf-8").write("{}")
+    assert not store.delete_account("注销用户", "wrong")["ok"], "密码错误应拒绝注销"
+    assert "注销用户" in store._read()["accounts"], "密码错误不应移除条目"
+    assert os.path.isfile(os.path.join(udir, "user_center.json")), "密码错误不应删目录"
+    assert store.delete_account("注销用户", "pass1234")["ok"], "正确密码应注销成功"
+    assert "注销用户" not in store._read()["accounts"], "注销后条目应移除"
+    assert not os.path.exists(udir), "注销后数据目录应删除"
+    assert store.resolve(rd["token"]) is None, "注销后旧 token 应失效"
+    rn = store.register("无目录用户", "nodir@x.com", "1234")
+    assert rn["ok"] and store.delete_account("无目录用户", "1234")["ok"], "数据目录缺失时也应注销成功"
+
+    print("account_manager 冒烟通过：校验/注册/登录/登出/token持久化/上下文路径/迁移/线程传播/注销")

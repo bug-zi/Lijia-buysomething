@@ -754,13 +754,14 @@ class ProductSearcher:
         return "连衣裙" if not hint else hint
 
     # ---------- 单链接详情页抓取（新流程：用户粘贴链接 → 逐个抓取） ----------
-    def grab_from_urls(self, urls: List[str]) -> Tuple[List[Product], str]:
+    def grab_from_urls(self, urls: List[str], cancel_check=None) -> Tuple[List[Product], str]:
         """
         接收用户粘贴的 1-5 条商品详情链接，逐个调用 Playwright 抓取。
         返回 (products, block_reason)。
         - 抓取成功 → products 含真实商品（data_source="真实"）
         - 验证码/滑块 → 返回部分结果 + block_reason 含「继续抓取」提示
         - 抓取失败 → 如实告知，严禁编造。
+        - cancel_check：消息撤回检查点，链接间轮询，True 即停止后续抓取
         """
         try:
             import web_scraper
@@ -770,6 +771,8 @@ class ProductSearcher:
         products: List[Product] = []
         block_reasons: List[str] = []
         for url in urls[:5]:
+            if cancel_check is not None and cancel_check():
+                break   # 消息已撤回：停止抓取后续链接
             r = web_scraper.grab_product_detail(url, headless=False)
             if r.get("product"):
                 products.append(r["product"])
@@ -784,10 +787,11 @@ class ProductSearcher:
 
     # ---------- 限量真实搜索：需求直达商品（2026-09-12 新增） ----------
     def search_real(self, keyword: str, platforms: Optional[List[str]] = None,
-                    max_per_platform: int = 6) -> Tuple[List[Product], str, bool]:
+                    max_per_platform: int = 6, cancel_check=None) -> Tuple[List[Product], str, bool]:
         """
         打开平台搜索结果页限量抓取（每平台 ≤10 条，默认 6），返回 (products, block_reason, need_human)。
         卡片层拿不到的字段（评价等）留空，绝不编造；登录墙 need_human=True 交还人工。
+        cancel_check：消息撤回检查点，平台间轮询，True 即停止后续平台抓取。
         """
         try:
             import web_scraper
@@ -802,8 +806,11 @@ class ProductSearcher:
         reasons: List[str] = []
         need_human = False
         for pf in platforms:
+            if cancel_check is not None and cancel_check():
+                break   # 消息已撤回：停止抓取后续平台
             r = web_scraper.search_platform(keyword.strip(), pf,
-                                            max_results=max_per_platform)
+                                            max_results=max_per_platform,
+                                            cancel_check=cancel_check)
             for card in r.get("cards") or []:
                 try:
                     p = self._product_from_card(card, pf, keyword)

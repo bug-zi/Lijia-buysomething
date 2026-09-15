@@ -38,6 +38,7 @@ class ShoppingRequest:
     needs_clarify: List[str] = field(default_factory=list)  # 待追问的信息点
     top_n: Optional[int] = None             # 用户指定的最终输出条数（如"排名前5"），None=默认TOP3
     per_platform_n: Optional[int] = None    # 用户指定的每平台候选条数（如"各筛前4名"）
+    size: Optional[str] = None              # 尺码/鞋码（"42码"→"42"）
 
     def summary(self) -> str:
         parts = []
@@ -51,11 +52,21 @@ class ShoppingRequest:
             budget = f"≥¥{self.price_min}"
         if budget: parts.append("预算：" + budget)
         if self.platforms: parts.append("平台：" + "/".join(self.platforms))
+        if self.size: parts.append(f"尺码：{self.size}码")
         if self.require_tags: parts.append("要求：" + "、".join(self.require_tags))
         if self.exclude_tags: parts.append("避雷：" + "、".join(self.exclude_tags))
         if self.top_n: parts.append(f"条数：前{self.top_n}名")
         return "；".join(parts) if parts else "（空）"
 
+
+# 颜色线索词（要求/排除识别与关键词卫生共用）
+_COLOR_WORDS = ["白色", "米白", "黑色", "粉色", "红色", "蓝色", "绿色", "黄色", "灰色",
+                "米色", "卡其", "藏青", "紫色", "杏色", "奶茶色", "碎花", "印花"]
+
+# 否定作用域段：否定词 + 其后至多8字的宾语（与 _parse_exclude 切分口径一致）。
+# 「不要这种带有黑色元素的」这类展开句式里，属性词（黑色）位于否定段内，
+# 不得被要求扫描误收、不得残留在搜索关键词里
+_NEG_SCOPE_RE = re.compile(r"(不要|讨厌|避开|避雷|不想要|别要|避免)\s*[一-龥A-Za-z0-9]{0,8}")
 
 PLATFORM_WORDS = {
     "淘宝/天猫": ["淘宝", "天猫", "taobao", "tmall", "tmail"],
@@ -358,6 +369,17 @@ class RequestParser:
         t = text.strip()
         t_lower = t.lower()
 
+        # 0.6) 尺码提取：「42码 / 码数42 / 鞋码：42.5」——先摘出并整段从文本剥离。
+        #      必须先于数字剥离做，否则「42码」会被关键词清理啃成「2码」残片混进搜索词
+        m_size = re.search(r"(\d{2}(?:\.\d)?)\s*码", t) or \
+            re.search(r"(?:鞋码|码数|尺码)\s*[:：]?\s*(\d{2}(?:\.\d)?)", t)
+        if m_size:
+            sv = m_size.group(1)
+            if 15 <= float(sv) <= 60:
+                req.size = sv
+                t = (t[:m_size.start()] + " " + t[m_size.end():]).strip()
+                t_lower = t.lower()
+
         # 0) 先识别「指向第几款购买」的强意图：开头是"买/确认/就要/就选 第X款/第X个/第X号"时，
         #    不再做需求解析，避免"买第2款"被误识别为搜索"买"。
         buy_first = re.match(
@@ -401,6 +423,7 @@ class RequestParser:
         # 5) 排除项："不要XX/避开XX/讨厌XX/避雷XX" + "XX太XX，换"结构（如"第二款太宽松" -> 宽松→排除）
         req.exclude_tags = self._parse_exclude(t)
         req.exclude_tags.extend(self._parse_too_x_to_change(t))
+        req.exclude_tags = list(dict.fromkeys(req.exclude_tags))
 
         # 6) 硬性要求：风格/材质/版型/颜色 线索词（若已在排除项，则不再加入要求）
         require_candidates = self._parse_require(t)
@@ -526,6 +549,17 @@ class RequestParser:
             items = re.split(r"[、,，/]", seg)
             for it in items:
                 it = it.strip()
+                # 展开句式「这种带有黑色元素」：真正的排除对象是其中的属性词
+                # （黑色），整段短语在商品名上永远匹配不中 → 提取属性词代替原段
+                attrs_in = [w for w in _COLOR_WORDS if w in it]
+                if attrs_in:
+                    res.extend(w for w in attrs_in if w not in res)
+                    continue
+                # 指示词前缀不是排除对象（这种面料→面料）
+                for d in ("这种", "这类", "那种", "这些", "此种"):
+                    if it.startswith(d) and len(it) > len(d):
+                        it = it[len(d):]
+                        break
                 if 1 <= len(it) <= 8:
                     # 过滤纯标点/停用词
                     if it in ("的", "呢", "哦", "啊", "也", "还", "再", "就", "又"): continue
@@ -569,8 +603,10 @@ class RequestParser:
     def _parse_require(self, t: str) -> List[str]:
         res: List[str] = []
         # 颜色/风格/版型/材质 — 硬编码常见词表
-        color_words = ["白色", "米白", "黑色", "粉色", "红色", "蓝色", "绿色", "黄色", "灰色",
-                       "米色", "卡其", "藏青", "紫色", "杏色", "奶茶色", "碎花", "印花"]
+        color_words = _COLOR_WORDS
+        # 否定段先整段遮蔽再扫描：否则「不要这种带有黑色元素的」里的「黑色」
+        # 会被误收成要求色，硬过滤把黑鞋当合规商品全部放行
+        t_scan = _NEG_SCOPE_RE.sub(lambda m: " " * len(m.group(0)), t)
         style_words = ["日系", "美式", "法式", "复古", "通勤", "商务", "甜酷", "辣妹",
                        "运动", "休闲", "国风", "新中式", "简约", "甜美", "可爱", "oversize",
                        "街头", "潮牌", "正式", "职业"]
@@ -582,7 +618,7 @@ class RequestParser:
                       "磁吸", "防摔", "挂绳", "腕带", "带盖", "吸管", "保温"]
         size_words = ["大码", "小码", "加大", "加小", "小个子", "高个"]
         tables = [color_words, style_words, material_words, fit_words, func_words, size_words]
-        lower = t.lower()
+        lower = t_scan.lower()
         for table in tables:
             for w in table:
                 if w.lower() in lower:
@@ -618,13 +654,17 @@ class RequestParser:
         s = re.sub(r"[一二两三四五六七八九十几半\d]+\s*(箱|袋|桶|盒|包|罐|瓶|斤|公斤|克|千克|升|毫升|份|打|把|支|只|张|台|部|块|颗|根|粒|卷|副)(?:装)?", "", s)
         # 开头虚词（人称代词/来）：「我想买一箱泡面」→「泡面」、「来一瓶冰红茶」→「冰红茶」
         s = re.sub(r"^\s*(?:我|我们|咱|您|来)(?:们)?", "", s)
+        # 否定段整体出词：否定+宾语是排除材料（已进 exclude_tags 由硬过滤执行），
+        # 不是搜索词——否则「不要这种带有黑色元素的」残出「这种带有 元素」垃圾关键词
+        s = _NEG_SCOPE_RE.sub(" ", s)
         # 条数短语先整段移除（前N名 / 各筛前N名 / TOP N / 推荐N款），避免数字剥离后留下残片
         s = re.sub(r"各[^。,，\s]{0,8}?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
         s = re.sub(r"(?:排名|综合)?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
         s = re.sub(r"top\s*\d{1,2}", "", s, flags=re.IGNORECASE)
         s = re.sub(r"(?:推荐|挑选?|选出|给?我)?\s*\d{1,2}\s*款", "", s)
         s = re.sub(r"(各|筛选出?|选出|最合适|综合比较|最终|排名|放在一块)", "", s)
-        s = re.sub(r"预算\s*[:：]?\s*\d+(?:\.\d+)?", "", s)
+        s = re.sub(r"(?:预算|价格)\s*[:：]?\s*(?:升|加|提|涨|换|调)?到\s*\d+(?:\.\d+)?(?:\s*(?:元|块|以内|以下|左右|之间))?", "", s)
+        s = re.sub(r"预算\s*[^，,。\s]{0,3}\s*[:：]?\s*\d+(?:\.\d+)?(?:\s*(?:元|块|以内|以下|左右|之间))?", "", s)
         # 先处理完整范围 200-300 / 200～300 / 200到300
         s = re.sub(r"\d+(?:\.\d+)?\s*[-～~到至]\s*\d+(?:\.\d+)?", "", s)
         # 再单独清掉残留的孤立数字（例如预算200留下的"200"、或误伤出来的"-300"）
@@ -636,17 +676,24 @@ class RequestParser:
             for w in plat_words:
                 # 整词替换，避免误伤夹在中文里的词
                 s = re.sub(re.escape(w), "", s)
+        # 颜色词不进搜索关键词：颜色已由要求/排除标签承接、由硬过滤层执行，
+        # 且「粉色+白色」这类多颜色无法拼进单一搜索词
+        for cw in _COLOR_WORDS:
+            if cw in s:
+                s = s.replace(cw, " ")
         for w in list(req.exclude_tags) + ["不要", "讨厌", "避开", "避雷", "不想要", "别要", "避免",
+                                          "换成", "改成", "调成",
                                           "更", "换", "改", "调", "的话", "一些", "一点", "的吧",
                                           "然后", "的话", "还有", "或者", "什么", "那个", "的", "了",
                                           "和", "与", "及", "着", "过", "啊", "呀", "呢", "哦",
                                           "买", "一条", "一件", "一双", "一个", "一套", "一款",
                                           "需要", "需求", "觉得", "打算", "准备", "东西",
+                                          "换成", "改成", "调成", "还是", "仍是",
                                           "物品", "商品", "其他"]:
             if w: s = re.sub(re.escape(w), "", s)
         # 移除"第X款"类
         s = re.sub(r"第\s*[一二三四五六1-6]\s*[款个号]", "", s)
-        s = re.sub(r"[、,，。.!！?？；;：:·\-\s]+", " ", s).strip()
+        s = re.sub(r"[、,，。.!！?？；;：:·\-\+\s]+", " ", s).strip()
         # 清理粘在实词前面的单字量词/助词（例如"个通勤运动鞋" → "通勤运动鞋"；
         # "的连衣裙" → "连衣裙"）。循环剥到不再变化为止
         _CJK_STOPS_PREFIX = set("个的了着过呢啊吧吗呀哦嗯和与及就又也都还只给让要到下上点些")
@@ -665,6 +712,7 @@ class RequestParser:
         tail_lower = s.lower()
         for tag in req.require_tags:
             if not tag or len(tag) <= 1: continue
+            if tag in _COLOR_WORDS: continue  # 颜色由硬过滤层执行，不进搜索词
             if tag.lower() in tail_lower or (req.category and tag.lower() in req.category.lower()): continue
             # 只追加非纯数字/预算表达式的属性词
             if re.fullmatch(r"[-～~到至\d.元块]+", tag): continue
@@ -762,10 +810,21 @@ class RequestParser:
         _add_list(req.require_tags, "require_tags")
         _add_list(req.exclude_tags, "exclude_tags")
 
+        # 尺码：规则未提取到时采纳 LLM（"42"或"42.5"这类纯数字串）
+        if req.size is None:
+            sv = j.get("size")
+            if isinstance(sv, (int, float)) and 15 <= float(sv) <= 60:
+                req.size = str(sv)
+            elif isinstance(sv, str) and re.fullmatch(r"\d{2}(?:\.\d)?", sv.strip()):
+                if 15 <= float(sv.strip()) <= 60:
+                    req.size = sv.strip()
+
         # --- 去重与净化：避免 query/预算/品类信息重复塞进 require_tags ---
         bag_str = f"{req.keyword}|{req.category or ''}|{req.purpose or ''}"
         def _is_redundant(tag: str) -> bool:
             if not tag: return True
+            # 颜色词是硬过滤材料（不进搜索词），绝不能因出现在 query 里而被当冗余剔除
+            if tag in _COLOR_WORDS: return False
             # 明显预算表达式
             if re.fullmatch(r"[-～~到至\d.元块以下以上以内封顶不超]+", tag): return True
             t = tag.lower()

@@ -20,6 +20,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 
 ORDERS_FILE = os.path.join(BASE_DIR, "orders.json")
 
 
+def _notify(mtype: str, title: str, detail: str) -> None:
+    """操作回执记入消息站（对话区不再展示操作类信息）；失败静默不影响主流程"""
+    try:
+        from message_center import message_center
+        message_center.add(mtype, title, detail)
+    except Exception:
+        pass
+
+
 @dataclass
 class LogisticsEvent:
     time: str
@@ -142,6 +151,10 @@ class OrderManager:
         )
         self.orders[order.order_id] = order
         self._save()
+        _notify("order_paid", f"下单成功（支付模拟）：{order.product_name}",
+                f"订单：{order.order_id}\n金额：¥{order.final_price:.2f}（{order.platform} · {order.seller}）\n"
+                f"收货：{order.receiver} {order.phone} · {order.address}\n"
+                f"仅为下单流程模拟，未真实扣款；真实支付请前往{order.platform}官方平台完成。")
         return self._format_order_confirm(order)
 
     def _format_order_confirm(self, o: Order) -> str:
@@ -261,6 +274,8 @@ class OrderManager:
         order.events.append(evt)
         order.status = "售后"
         self._save()
+        _notify("aftersale", f"售后申请已提交：{order.product_name}",
+                f"订单：{order.order_id}\n原因：{reason}\n当前状态：售后处理中（商家预计 3 个工作日内处理）")
         return (
             f"**售后申请已提交**\n"
             f"- 订单：{order.order_id}\n"
@@ -273,6 +288,8 @@ class OrderManager:
         order = self.get_order(order_id)
         if not order:
             return f"未找到订单「{order_id}」。"
+        if order.status == "已取消":
+            return f"订单 `{order.order_id}` 已是「已取消」状态，无需重复取消。"
         if order.status in ("已发货", "运输中", "派送中", "已签收"):
             return f"订单已进入物流环节，无法直接取消。可使用「售后 {order.order_id} <原因>」申请退换货。"
         order.status = "已取消"
@@ -282,6 +299,9 @@ class OrderManager:
                            detail="订单已取消：" + order.cancel_reason)
         )
         self._save()
+        _notify("order_cancel", f"订单已取消：{order.product_name}",
+                f"订单：{order.order_id}\n原因：{order.cancel_reason}\n"
+                f"金额：¥{order.final_price:.2f}（{order.platform}）\n该订单仅为流程模拟，未产生真实扣款。")
         return f"订单 `{order.order_id}` 已取消。原因：{order.cancel_reason}"
 
 

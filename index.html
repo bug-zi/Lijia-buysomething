@@ -495,8 +495,13 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .chat-msg.user { flex-direction: row-reverse; }
 .chat-msg.user .avatar { background: var(--user-bubble); color: #fff; box-shadow: var(--shadow-sm); }
 .chat-msg.ai   .avatar { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-/* 「取消并退回编辑」按钮：row-reverse 下追加在气泡之后，视觉上位于用户气泡左侧 */
-.chat-msg.user .cancel-send-btn { flex-shrink: 0; align-self: center; }
+/* 「取消并退回编辑」：换行挂在用户气泡正下方（右缘对齐气泡、避开右侧头像列），弱化视觉不抢注意力 */
+.chat-msg.user { flex-wrap: wrap; }
+.chat-msg.user .cancel-row { flex:1 1 100%; display:flex; justify-content:flex-end; padding-right:46px; margin-top:3px; }
+.cancel-send-btn { font-size:11.5px; padding:2px 10px; border-radius:999px;
+  background:transparent; border:1px dashed var(--border); color:var(--text-3);
+  transition:all .18s ease; cursor:pointer; }
+.cancel-send-btn:hover { color:var(--primary-dark); border-color:var(--primary); background:var(--primary-soft); }
 .chat-bubble {
   max-width: 78%;
   padding: 11px 14px;
@@ -663,6 +668,20 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .profile-actions {
   display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
 }
+.profile-group { margin-bottom: 18px; }
+.profile-group:last-child { margin-bottom: 4px; }
+.profile-group-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 2px 0 8px; font-size: 13.5px; font-weight: 600; color: var(--text-1);
+}
+.profile-group-head .pg-tag {
+  font-size: 11.5px; font-weight: 600; padding: 1px 9px; border-radius: 999px;
+}
+.profile-group.required .pg-tag { background: var(--primary-soft); color: var(--primary); }
+.profile-group:not(.required) .pg-tag {
+  background: var(--bg); color: var(--text-3); border: 1px dashed var(--border); font-weight: 500;
+}
+.profile-group-head .pg-hint { font-size: 12px; font-weight: 400; color: var(--text-3); }
 .cmd-bar {
   display: flex; gap: 8px; margin-top: 10px; align-items: stretch;
 }
@@ -762,7 +781,7 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .confirm-icon .material-symbols-outlined { font-size: 28px; }
 .confirm-box h3 { margin-bottom: 8px; font-size: 17px; }
 .confirm-msg { color: var(--text-2); font-size: 13.5px; line-height: 1.6; margin-bottom: 16px; word-break: break-all; }
-.confirm-actions { display: flex; gap: 10px; justify-content: center; }
+.confirm-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .confirm-actions .btn { min-width: 96px; }
 
 /* ============== Tab 4: 推荐快捷 ============== */
@@ -941,15 +960,87 @@ html[data-fontsize="xlarge"] body { zoom: 1.18; }
 html[data-font="song"] body { font-family: "SimSun","Songti SC",serif; }
 html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
 
-/* 新手引导（仅首次） */
-.onboard-mask { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:grid; place-items:center; }
-.onboard-card { background:var(--card); border-radius:16px; box-shadow:var(--shadow-lg);
-  padding:24px 26px; width:min(520px,92vw); color:var(--text-1); }
-.onboard-card h3 { font-size:17px; }
-.onboard-steps { display:flex; gap:6px; margin-bottom:14px; }
-.onboard-steps span { height:5px; flex:1; border-radius:3px; background:var(--border); }
-.onboard-steps span.on { background:var(--primary); }
-.onboard-actions { display:flex; justify-content:space-between; margin-top:18px; align-items:center; }
+/* 新手引导（仅首次）：分节向导 + 聚光引导 */
+.onboard-mask { position:fixed; inset:0; background:rgba(10,16,28,.55); z-index:1000; display:grid; place-items:center; }
+.onboard-card { position:relative; background:var(--card); border-radius:18px; color:var(--text-1);
+  width:min(620px,94vw); max-height:min(88vh,800px); display:flex; flex-direction:column;
+  box-shadow:0 30px 90px rgba(6,12,26,.45), 0 8px 24px rgba(6,12,26,.22), var(--primary-shadow);
+  animation: obCardIn .32s ease both; }
+@keyframes obCardIn { from { opacity:0; transform:translateY(14px) scale(.985); } to { opacity:1; transform:none; } }
+/* 卡片外围白色虚线聚焦框：配合遮罩把视线收拢到引导卡 */
+.onboard-card::after { content:""; position:absolute; inset:-11px; border:2px dashed rgba(255,255,255,.40);
+  border-radius:28px; pointer-events:none; }
+.ob-headwrap { background:linear-gradient(135deg, var(--ub-1), var(--ub-2)); border-radius:18px 18px 0 0; }
+.ob-head { display:flex; align-items:center; gap:12px; padding:16px 22px 12px; color:#fff; }
+.ob-head .ob-ico { width:38px; height:38px; border-radius:12px; background:rgba(255,255,255,.16);
+  border:1px dashed rgba(255,255,255,.55); display:grid; place-items:center; flex-shrink:0; }
+.ob-head .ob-ico .material-symbols-outlined { font-size:22px; }
+.ob-sec-name { font-size:16px; font-weight:700; letter-spacing:.3px; }
+.ob-sec-sub { font-size:12px; opacity:.88; margin-top:2px; }
+.ob-close { margin-left:auto; width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.14);
+  color:#fff; display:grid; place-items:center; transition:background .15s ease; flex-shrink:0; }
+.ob-close:hover { background:rgba(255,255,255,.30); }
+.ob-progress { height:4px; background:rgba(255,255,255,.26); }
+.ob-progress > i { display:block; height:100%; background:#fff; border-radius:2px; transition:width .35s ease; }
+.ob-sections { display:flex; gap:8px; padding:14px 22px 0; flex-wrap:wrap; }
+.ob-sec-pill { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; padding:5px 12px;
+  border-radius:999px; border:1px dashed var(--border); color:var(--text-3); background:transparent; }
+.ob-sec-pill .material-symbols-outlined { font-size:15px; }
+.ob-sec-pill.cur { border:1px solid var(--primary); color:var(--primary-dark); background:var(--primary-soft); font-weight:600; }
+.ob-sec-pill.done { border:1px solid var(--primary); color:var(--primary-dark); opacity:.7; }
+.ob-steptag { padding:10px 22px 0; font-size:12px; color:var(--text-3); }
+.ob-body { padding:10px 22px 6px; overflow-y:auto; min-height:0; }
+.ob-body h3 { font-size:17px; margin-bottom:8px; }
+.ob-actions { display:flex; align-items:center; gap:8px; padding:14px 22px 18px; }
+.ob-actions .spacer { flex:1; }
+.btn.ob-skip { font-size:12.5px; color:var(--text-3); }
+.btn.ob-skip:hover { color:var(--primary-dark); background:var(--primary-soft); }
+/* 引导小节内流程条：虚线连接的功能节点 */
+.ob-flow { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:10px 0 4px; }
+.ob-flow .ob-node { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--text-2);
+  border:1px dashed var(--border); background:var(--bg); padding:5px 10px; border-radius:999px; }
+.ob-flow .ob-node .material-symbols-outlined { font-size:15px; color:var(--primary); }
+.ob-flow .ob-link { width:16px; border-top:2px dashed var(--border); }
+/* 引导页特性卡 */
+.ob-feats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
+.ob-feat { border:1px dashed var(--border); border-radius:12px; padding:12px; background:var(--bg); }
+.ob-feat .material-symbols-outlined { font-size:22px; color:var(--primary); }
+.ob-feat b { display:block; margin:6px 0 4px; font-size:13.5px; color:var(--text-1); }
+.ob-feat span { font-size:12px; color:var(--text-3); line-height:1.6; display:block; }
+/* 引导内行内跳转按钮排 */
+.ob-golinks { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+/* 聚光引导：目标导航项提亮 + 白色虚线圈 + 呼吸动画（z 高于遮罩） */
+.ob-spot { position:relative; z-index:1001; border-radius:12px;
+  outline:2px dashed rgba(255,255,255,.95); outline-offset:5px;
+  box-shadow:0 0 0 7px rgba(255,255,255,.14), 0 16px 48px rgba(0,0,0,.5);
+  animation: obSpotBreath 1.7s ease-in-out infinite; }
+@keyframes obSpotBreath { 0%,100% { outline-offset:5px; } 50% { outline-offset:9px; } }
+/* 暂停引导后的续引浮窗 */
+#ob-resume { position:fixed; right:22px; bottom:22px; z-index:999; display:none;
+  align-items:center; gap:8px; padding:10px 16px; border-radius:999px;
+  background:linear-gradient(135deg, var(--ub-1), var(--ub-2)); color:#fff; font-size:13.5px; font-weight:600;
+  box-shadow:0 10px 30px rgba(6,12,26,.35), var(--primary-shadow); animation:obCardIn .3s ease both; }
+#ob-resume:hover { filter:brightness(1.06); }
+#ob-resume .material-symbols-outlined { font-size:18px; }
+/* 手把手任务模式：轻遮罩只做视觉聚焦不拦截点击（侧栏/卡片毛玻璃会形成层叠上下文，
+   聚光元素无法可靠升到遮罩之上，拦截会吃掉真实鼠标点击——引导必须给用户操作留白） */
+#ob-blocker { position:fixed; inset:0; z-index:1000; background:rgba(10,16,28,.14); display:none; pointer-events:none; }
+#ob-dock { position:fixed; z-index:1002; width:min(370px,92vw); background:var(--card);
+  border-radius:14px; overflow:hidden; color:var(--text-1); display:none;
+  box-shadow:0 18px 50px rgba(6,12,26,.38), var(--primary-shadow); animation:obCardIn .28s ease both; }
+#ob-dock::after { content:""; position:absolute; inset:-8px; border:2px dashed rgba(255,255,255,.45);
+  border-radius:19px; pointer-events:none; }
+.ob-dock-head { display:flex; align-items:center; gap:9px; padding:10px 14px 8px; color:#fff;
+  background:linear-gradient(135deg, var(--ub-1), var(--ub-2)); }
+.ob-dock-head .material-symbols-outlined { font-size:19px; }
+.ob-dock-meta { min-width:0; }
+.ob-dock-meta b { display:block; font-size:13px; letter-spacing:.3px; }
+.ob-dock-meta span { font-size:11.5px; opacity:.88; }
+.ob-dock-bar { height:3px; background:linear-gradient(135deg, var(--ub-1), var(--ub-2)); }
+.ob-dock-bar i { display:block; height:100%; background:#fff; transition:width .3s ease; }
+.ob-dock-text { padding:11px 14px 4px; font-size:12.8px; color:var(--text-2); line-height:1.75; }
+.ob-dock-text b { display:block; color:var(--text-1); font-size:13.5px; margin-bottom:2px; }
+.ob-dock-actions { display:flex; align-items:center; gap:4px; padding:8px 12px 12px; flex-wrap:wrap; }
 
 /* ===== 多账户：登录/注册门 + 顶栏账户菜单 ===== */
 #auth-gate { position: fixed; inset: 0; z-index: 998; display: none;
@@ -992,6 +1083,12 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
   display: flex; align-items: center; gap: 6px; }
 .acct-menu button:hover { background: var(--mute-bg); }
 .acct-menu button .material-symbols-outlined { font-size: 17px; color: var(--text-3); }
+.acct-chip .acct-avatar { width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: inline-flex;
+  align-items: center; justify-content: center; flex: none; }
+.acct-chip .acct-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acct-chip .acct-avatar .uc-avatar { width: 24px; height: 24px; font-size: 12px; }
+.acct-menu button.danger { color: var(--danger); }
+.acct-menu button.danger .material-symbols-outlined { color: var(--danger); }
 
 /* 消息 toast */
 .toast-stack {
@@ -1138,6 +1235,14 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <span class="ico"><span class="material-symbols-outlined">settings</span></span><span class="label">配置库</span>
         <span class="badge" id="llm-badge" style="display:none"></span>
       </div>
+      <div class="nav-item" data-tab="tab-messages" onclick="switchTab('tab-messages')">
+        <span class="ico"><span class="material-symbols-outlined">notifications</span></span><span class="label">消息站</span>
+        <span class="badge" id="msg-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-tab="tab-trash"   onclick="switchTab('tab-trash')">
+        <span class="ico"><span class="material-symbols-outlined">delete</span></span><span class="label">回收站</span>
+        <span class="badge" id="trash-badge" style="display:none">0</span>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -1176,7 +1281,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
       </div>
       <button class="auth-submit" id="auth-submit" onclick="authSubmit()">登录</button>
       <div class="auth-err" id="auth-err"></div>
-      <div class="auth-tip">本地单机使用：注册填写用户名+邮箱+密码即创建成功；各账户数据相互隔离。</div>
+      <div class="auth-tip" id="auth-tip">本地单机使用：注册填写用户名+邮箱+密码即创建成功；各账户数据相互隔离。</div>
     </div>
   </div>
 
@@ -1198,11 +1303,13 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         </button>
         <div style="position:relative">
           <button class="acct-chip" id="acct-chip" onclick="toggleAcctMenu(event)" title="账户">
-            <span class="material-symbols-outlined">person</span><span id="acct-name">未登录</span>
+            <span id="acct-name">未登录</span><span class="acct-avatar" id="acct-avatar"></span>
           </button>
           <div class="acct-menu" id="acct-menu">
             <div class="acct-info" id="acct-info"></div>
+            <button onclick="doSwitchAccount()"><span class="material-symbols-outlined">switch_account</span>切换账户</button>
             <button onclick="doLogout()"><span class="material-symbols-outlined">logout</span>退出登录</button>
+            <button class="danger" onclick="doDeleteAccount()"><span class="material-symbols-outlined">delete_forever</span>注销账号</button>
           </div>
         </div>
       </div>
@@ -1282,7 +1389,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="uc-prefs-card">
         <div class="card-title">
           <span><span class="material-symbols-outlined">tune</span> 用户中心 · 界面与行为偏好
             <span class="hint-tip"><button class="tip-btn" type="button" onclick="toggleTip(this)" title="查看说明" aria-label="查看说明"><span class="material-symbols-outlined">info</span></button><span class="tip-pop-src" hidden>点击选项立即生效并保存（本地 + 服务端双持久化）。</span></span>
@@ -1296,10 +1403,10 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div id="uc-prefs" style="display:grid;gap:14px;"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="uc-profile-card">
         <div class="card-title">
           <span><span class="material-symbols-outlined">person</span> 个人购物偏好档案（所有商品推荐的永久参考）
-            <span class="hint-tip"><button class="tip-btn" type="button" onclick="toggleTip(this)" title="查看说明" aria-label="查看说明"><span class="material-symbols-outlined">info</span></button><span class="tip-pop-src" hidden>修改字段值后点「保存修改」即可生效。</span></span>
+            <span class="hint-tip"><button class="tip-btn" type="button" onclick="toggleTip(this)" title="查看说明" aria-label="查看说明"><span class="material-symbols-outlined">info</span></button><span class="tip-pop-src" hidden>字段分「必填 / 选填」两档：必填 10 项决定推荐准确度与下单流程；选填按画像体型/风格场景/材质气候/品牌渠道/决策服务分组，填得越全推荐越准。修改字段值后点「保存修改」即可生效（仅本地保存，不会推送到对话）。</span></span>
           </span>
         </div>
         <div class="profile-actions">
@@ -1355,7 +1462,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
             <button class="btn sm danger" onclick="listClearDone()"><span class="material-symbols-outlined">done_all</span> 清空已完成</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div id="list-add-row" style="display:flex;gap:8px;margin-bottom:12px;">
           <input type="text" class="input" id="list-input" style="flex:1" placeholder="例：夏天房间太热想凉快点；例：降噪耳机 预算500"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();listAdd();}">
           <button class="btn sm" onclick="listAdd()"><span class="material-symbols-outlined">add</span> 添加</button>
@@ -1415,7 +1522,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
 
         <div style="display:grid;grid-template-columns: 1.2fr 1fr;gap:18px;align-items:start;">
           <!-- 左：配置表单 -->
-          <div>
+          <div id="api-form-col">
             <div class="form-grid">
               <div class="form-item full">
                 <label>API Key *
@@ -1476,6 +1583,43 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div id="login-states" style="display:grid;gap:12px;"></div>
       </div>
     </section>
+
+    <!-- Tab: 消息站（操作记录中心） -->
+    <section class="tab-panel" id="tab-messages">
+      <div class="card">
+        <div class="card-title">
+          <span><span class="material-symbols-outlined">notifications</span> 消息站 · 操作记录
+            <span class="hint-tip"><button class="tip-btn" type="button" onclick="toggleTip(this)" title="查看说明" aria-label="查看说明"><span class="material-symbols-outlined">info</span></button><span class="tip-pop-src" hidden>订单取消、售后申请、下单模拟、移入回收站等<b>操作回执</b>统一记录在这里，不再挤占对话购物区。记录仅存本机，最多保留 500 条。</span></span>
+          </span>
+          <div>
+            <button class="btn sm" onclick="loadMessages()"><span class="material-symbols-outlined">refresh</span> 刷新</button>
+            <button class="btn sm" onclick="msgMarkAllRead()"><span class="material-symbols-outlined">done_all</span> 全部已读</button>
+            <button class="btn sm danger" onclick="msgClear()"><span class="material-symbols-outlined">delete_sweep</span> 清空记录</button>
+          </div>
+        </div>
+        <div id="msg-list" class="order-list">
+          <div class="empty"><span class="big"><span class="material-symbols-outlined">notifications</span></span>暂无操作记录 — 取消订单、申请售后等操作回执会出现在这里。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab: 回收站（删除数据归档，3 天自动彻底删除） -->
+    <section class="tab-panel" id="tab-trash">
+      <div class="card">
+        <div class="card-title">
+          <span><span class="material-symbols-outlined">delete</span> 回收站 · 删除数据暂存
+            <span class="hint-tip"><button class="tip-btn" type="button" onclick="toggleTip(this)" title="查看说明" aria-label="查看说明"><span class="material-symbols-outlined">info</span></button><span class="tip-pop-src" hidden>删除的会话、购物车条目、清单条目、个人档案、API Key 配置会先移入这里，<b>超过 3 天未处理自动彻底删除</b>，期间可随时还原。<br><b>不进回收站的删除</b>：清除网站登录态（登录凭据无法可靠快照还原，重新扫码即可）、注销账号（账户数据整体删除）。</span></span>
+          </span>
+          <div>
+            <button class="btn sm" onclick="loadTrash()"><span class="material-symbols-outlined">refresh</span> 刷新</button>
+            <button class="btn sm danger" onclick="trashClear()"><span class="material-symbols-outlined">delete_forever</span> 清空回收站</button>
+          </div>
+        </div>
+        <div id="trash-list" class="order-list">
+          <div class="empty"><span class="big"><span class="material-symbols-outlined">delete</span></span>回收站为空 — 删除的会话/购物车/清单/档案会先暂存在这里（3 天内可还原）。</div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -1495,15 +1639,50 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
   <div class="confirm-box" id="confirm-box"></div>
 </div>
 
-<!-- 新手引导（仅首次显示） -->
+<!-- 新手引导（仅首次显示）：分节向导 + 聚光引导 -->
 <div class="onboard-mask" id="onboard-mask" style="display:none">
   <div class="onboard-card">
-    <div class="onboard-steps" id="onboard-steps"></div>
-    <div id="onboard-body"></div>
-    <div class="onboard-actions">
-      <button class="btn ghost" onclick="onboardSkip()">跳过引导</button>
-      <button class="btn primary" id="onboard-next" onclick="onboardNext()">下一步</button>
+    <div class="ob-headwrap">
+      <div class="ob-head">
+        <div class="ob-ico"><span class="material-symbols-outlined" id="ob-ico">handshake</span></div>
+        <div>
+          <div class="ob-sec-name" id="ob-sec-name">第 1 节 · 认识助手</div>
+          <div class="ob-sec-sub" id="ob-sec-sub">步骤 1 / 10</div>
+        </div>
+        <button class="ob-close" id="ob-close" title="暂停引导，稍后继续" onclick="obPause()"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+      </div>
+      <div class="ob-progress"><i id="ob-bar" style="width:10%"></i></div>
     </div>
+    <div class="ob-sections" id="ob-sections"></div>
+    <div class="ob-steptag" id="ob-steptag"></div>
+    <div class="ob-body" id="onboard-body"></div>
+    <div class="ob-actions">
+      <button class="btn ghost ob-skip" onclick="obSkipAll()">跳过全部引导</button>
+      <button class="btn ghost ob-skip" id="ob-skip-sec" onclick="obSkipSection()">跳过本节</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="ob-prev" onclick="obPrev()">上一步</button>
+      <button class="btn primary" id="ob-next" onclick="obNext()">下一步</button>
+    </div>
+  </div>
+</div>
+<!-- 引导暂停后的续引浮窗 -->
+<button id="ob-resume" onclick="obResume()"><span class="material-symbols-outlined">play_circle</span><span id="ob-resume-text">继续新手引导</span></button>
+<!-- 手把手任务模式：视觉聚焦轻遮罩（不拦截点击，给用户操作留白）+ 锚定引导浮卡 -->
+<div id="ob-blocker" style="display:none"></div>
+<div id="ob-dock" style="display:none">
+  <div class="ob-dock-head">
+    <span class="material-symbols-outlined" id="ob-dock-ico">tune</span>
+    <div class="ob-dock-meta"><b id="ob-dock-sec"></b><span id="ob-dock-step"></span></div>
+  </div>
+  <div class="ob-dock-bar"><i id="ob-dock-bar"></i></div>
+  <div class="ob-dock-text" id="ob-dock-text"></div>
+  <div class="ob-dock-actions">
+    <button class="btn ghost sm ob-skip" onclick="obSkipAll()">跳过全部</button>
+    <button class="btn ghost sm ob-skip" onclick="obSkipSection()">跳过本节</button>
+    <span style="flex:1"></span>
+    <button class="btn sm" id="ob-dock-extra" style="display:none" onclick="obDockExtra()"></button>
+    <button class="btn ghost sm" id="ob-dock-back" onclick="obBack()">上一步</button>
+    <button class="btn primary sm" onclick="obNext()">下一步</button>
   </div>
 </div>
 
@@ -1579,7 +1758,7 @@ function applySkin(skin) {
   $$(".skin-dot[data-skin]").forEach(d => d.classList.toggle("active", d.dataset.skin === skin));
   applyThemeAssets();
 }
-function setSkin(skin) { applySkin(skin); }
+function setSkin(skin) { applySkin(skin); obNotify("skin"); }
 /* 皮肤色系选择（用户中心 · 界面与行为偏好）：与 data-skin 一一对应，点选立即生效 */
 const SKINS = [["classic","#1890ff","经典蓝"],["sakura","#c06c84","樱花粉"],
   ["forest","#3d8a68","森野绿"],["sunset","#cf8a3e","暖阳橙"]];
@@ -1636,10 +1815,18 @@ function authSwitch(mode){
 function showAuthGate(){
   setSaToken("", "");
   $("#acct-name").textContent = "未登录";
+  const _av = $("#acct-avatar"); if (_av) _av.innerHTML = "";
+  let switching = false;
+  try{ switching = sessionStorage.getItem("sa_switching") === "1"; }catch(e){}
+  const tipEl = $("#auth-tip");
+  if (tipEl) tipEl.textContent = switching
+    ? "切换账户：请登录其他账户，或注册新账户；各账户数据相互隔离。"
+    : "本地单机使用：注册填写用户名+邮箱+密码即创建成功；各账户数据相互隔离。";
   $("#auth-gate").classList.add("show");
   authSwitch("login");
 }
 function onAuthed(token, name){
+  try{ sessionStorage.removeItem("sa_switching"); }catch(e){}
   if (saUsername() && saUsername() !== name){
     // 换账户：清掉上个账户的本地缓存（会话选择 / 用户中心偏好 / 引导标记）
     try{ localStorage.removeItem("sa_active_session"); localStorage.removeItem("sa_uc"); localStorage.removeItem("sa_onboarded"); }catch(e){}
@@ -1649,6 +1836,7 @@ function onAuthed(token, name){
   $("#auth-gate").classList.remove("show");
   $("#acct-name").textContent = name;
   $("#acct-info").textContent = "当前账户：" + name;
+  refreshAcctChip();
 }
 async function authSubmit(){
   const username = $("#auth-user").value.trim();
@@ -1665,6 +1853,10 @@ async function authSubmit(){
     const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
     const data = await r.json();
     if (!data.ok) { errEl.textContent = data.error || "操作失败"; return; }
+    if (AUTH_MODE === "reg"){
+      // 新注册账户必见新手引导：清掉本浏览器旧账户遗留的「已引导」本地兜底标记
+      try{ localStorage.removeItem("sa_onboarded"); }catch(e){}
+    }
     onAuthed(data.token, data.username);
     bootAfterAuth();
   }catch(e){ errEl.textContent = "服务不可用，请确认后端已启动。"; }
@@ -1684,6 +1876,7 @@ async function ensureAuth(){
 function toggleAcctMenu(ev){ ev.stopPropagation(); $("#acct-menu").classList.toggle("show"); }
 document.addEventListener("click", () => { const m = $("#acct-menu"); if (m) m.classList.remove("show"); });
 async function doLogout(){
+  if (!(await confirmProfileLeave("退出登录"))) return;
   try{ await api("/api/auth/logout", "POST", {}); }catch(e){}
   // 退出即清本账户本地缓存（引导标记/用户中心偏好/会话选择），否则同浏览器新注册的账户会继承「已引导」状态
   try{ localStorage.removeItem("sa_active_session"); localStorage.removeItem("sa_uc"); localStorage.removeItem("sa_onboarded"); }catch(e){}
@@ -1691,19 +1884,54 @@ async function doLogout(){
   CURRENT_SESSION_ID = "";
   location.reload();
 }
+async function doSwitchAccount(){
+  if (!(await confirmProfileLeave("切换账户"))) return;
+  try{ await api("/api/auth/logout", "POST", {}); }catch(e){}
+  try{
+    sessionStorage.setItem("sa_switching", "1");
+    localStorage.removeItem("sa_active_session"); localStorage.removeItem("sa_uc"); localStorage.removeItem("sa_onboarded");
+  }catch(e){}
+  setSaToken("", "");
+  CURRENT_SESSION_ID = "";
+  location.reload();
+}
+async function doDeleteAccount(){
+  const ask = (msg) => askText({
+    title: "注销账号", icon: "delete_forever", danger: true, okText: "确认注销",
+    message: msg || "账号及其全部本地数据（档案/订单/清单/会话等）将被永久删除，不可恢复。请输入登录密码确认。",
+    placeholder: "登录密码", value: ""
+  });
+  let pwd = await ask();
+  while (pwd !== null && pwd){
+    const r = await api("/api/auth/delete_account", "POST", { password: pwd });
+    if (r && r.ok){
+      try{ localStorage.removeItem("sa_active_session"); localStorage.removeItem("sa_uc"); localStorage.removeItem("sa_onboarded"); }catch(e){}
+      setSaToken("", "");
+      CURRENT_SESSION_ID = "";
+      location.reload();
+      return;
+    }
+    toast((r && r.error) || "注销失败", "err");
+    pwd = await ask((r && r.error) || "注销失败，请重试。");
+  }
+}
 let BOOTED = false;
 function bootAfterAuth(){
   if (BOOTED) return;
   BOOTED = true;
-  loadProfile();
+  loadProfile();   // 内部会顺带刷新档案徽标
   loadOrders();
   initSessions();
+  refreshStationBadges();   // 消息站/回收站徽标
   maybeOnboard();
-  updateBadges({ profile: {}, orders: [] });
 }
 
 /* =============== Tab 切换 =============== */
-function switchTab(id) {
+async function switchTab(id) {
+  if (id !== "tab-profile" && !(await confirmProfileLeave("离开当前页面"))) return;
+  _switchTab(id);
+}
+function _switchTab(id) {
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === id));
   $$(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.tab === id));
   const title = {
@@ -1713,17 +1941,26 @@ function switchTab(id) {
     "tab-orders":  "订单 & 物流 · 实时跟踪售后进度",
     "tab-rec":     "TOP3 推荐 · 多维度打分横评",
     "tab-api":     "配置库 · AI 能力 + 网站登录态",
+    "tab-messages":"消息站 · 操作记录中心",
+    "tab-trash":   "回收站 · 删除数据暂存（3 天自动清理）",
   }[id] || "";
   $("#topbar-title").textContent = title;
 
   const stb = $("#session-toggle-btn");
   if (stb) stb.style.display = id === "tab-chat" ? "inline-flex" : "none";
 
-  if (id === "tab-profile") { loadProfile(); loadUserCenter(); }
+  if (id === "tab-profile") { if (!isProfileDirty()) loadProfile(); loadUserCenter(); }
   if (id === "tab-orders")  loadOrders();
   if (id === "tab-list")    loadList();
   if (id === "tab-api")     { loadApiKeyStatus(); loadLoginStates(); }
+  if (id === "tab-messages") loadMessages();
+  if (id === "tab-trash")   loadTrash();
+  obNotify("tab", id);   // 新手引导任务模式：侦测页签切换自动前进（未激活时静默）
 }
+/* 关闭应用/刷新页面前：档案有未保存修改时弹浏览器原生确认（浏览器安全限制，仅原生样式） */
+window.addEventListener("beforeunload", (e) => {
+  if (isProfileDirty()) { e.preventDefault(); e.returnValue = ""; }
+});
 
 /* =============== Tab 1: 聊天 =============== */
 const WELCOME_TEXT =
@@ -1850,6 +2087,19 @@ function refreshChatAvatars() {
   const src = ucAvatarSrc();
   const inner = src ? '<img src="' + escapeHtml(src) + '" alt="">' : '<span class="material-symbols-outlined">person</span>';
   document.querySelectorAll("#chat-messages .chat-msg.user .avatar").forEach(av => { av.innerHTML = inner; });
+}
+
+/* 顶栏账户胶囊头像：优先自定义/性别默认头像图，否则首字母+主题色色块（不用图标） */
+function topbarAvatarHtml(name){
+  const src = ucAvatarSrc();
+  if (src) return '<img src="' + escapeHtml(src) + '" alt="">';
+  const color = (_uc && _uc.avatar_color) || "classic";
+  const letter = ((name || "用").charAt(0) || "用").toUpperCase();
+  return '<span class="uc-avatar ' + color + '">' + escapeHtml(letter) + '</span>';
+}
+function refreshAcctChip(){
+  const box = $("#acct-avatar");
+  if (box) box.innerHTML = topbarAvatarHtml(saUsername());
 }
 
 function appendMsg(role, htmlText, opts = {}) {
@@ -2031,18 +2281,21 @@ function removeTyping() {
   const t = $("#typing-indicator");
   if (t) t.remove();
 }
-// 「取消并退回编辑」按钮：AI 思考/搜索期间挂在本条用户消息气泡旁（row-reverse 下位于气泡左侧），点击撤回本次发送
+// 「取消并退回编辑」按钮：挂在用户气泡正下方（cancel-row 独占一行、右缘对齐气泡），点击撤回本次发送
 function appendCancelRow(userEl, onCancel) {
   if (!userEl) return;
+  const row = document.createElement("div");
+  row.className = "cancel-row";
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "chip cancel-send-btn";
+  btn.className = "cancel-send-btn";
   btn.textContent = "取消并退回编辑";
   btn.addEventListener("click", onCancel);
-  userEl.appendChild(btn);
+  row.appendChild(btn);
+  userEl.appendChild(row);
 }
 function removeCancelRow() {
-  document.querySelectorAll("#chat-messages .chat-msg.user > .cancel-send-btn").forEach(b => b.remove());
+  document.querySelectorAll("#chat-messages .chat-msg.user > .cancel-row").forEach(r => r.remove());
 }
 
 let chatBusy = false;
@@ -2127,6 +2380,7 @@ async function sendMsg(text) {
     autoResizeInput();
     $("#chat-input").focus();
   });
+  obNotify("chat_sent");   // 新手引导「对话购物」步：侦测已发出第一句需求
 
   try {
     let res;
@@ -2143,6 +2397,7 @@ async function sendMsg(text) {
       // 已取消：UI 已在取消时撤回，迟到的响应一律丢弃（后端同刻取消则连历史都不会写入）
     } else if (res.ok) {
       appendMsg("ai", renderMarkdown(res.reply || res.message || ""));
+      obNotify("chat_reply");   // 新手引导「对话购物」步：AI 回复已到（含澄清表单/推荐）
       if (res.clarify_form && res.clarify_form.questions) appendClarifyForm(res.clarify_form);
       else if (Array.isArray(res.chips) && res.chips.length) appendChips(res.chips);
       updateBadges(res.snapshot);
@@ -2211,7 +2466,7 @@ function toggleSessionSide(force) {
 const UC_PREF_ROWS = [
   { key:"font_size",    label:"文字大小",         opts:[["small","小"],["medium","标准"],["large","大"],["xlarge","特大"]] },
   { key:"font_family",  label:"界面字体",         opts:[["default","默认黑体"],["song","宋体"],["kai","楷体"]] },
-  { key:"browser_popup",label:"AI 查询浏览器窗口", opts:[["popup","弹出显示"],["background","后台最小化"]] },
+  { key:"browser_popup",label:"AI 查询浏览器窗口", opts:[["background","后台最小化"],["popup","弹出显示"]] },
   { key:"persona",      label:"交互风格（人群）",   opts:[["default","默认"],["student","学生党"],["office","上班族"],["senior","长辈"]] },
 ];
 let _uc = null;
@@ -2229,6 +2484,7 @@ async function loadUserCenter(){
   $("#uc-nickname").value = _uc.nickname || "";
   $("#uc-uid").textContent = _uc.user_id || "—";
   renderUcAvatar();
+  refreshAcctChip();
   renderUcGender();
   renderUcPrefs();
   applyUcLocal(_uc.prefs || {});
@@ -2255,7 +2511,7 @@ function renderUcGender(){
 async function setUcGender(v){
   const r = await api("/api/usercenter","POST",{ gender: v });
   if(r && r.ok){
-    _uc = r.user; renderUcGender(); renderUcAvatar(); refreshChatAvatars();
+    _uc = r.user; renderUcGender(); renderUcAvatar(); refreshChatAvatars(); refreshAcctChip();
     toast("性别已保存，默认头像已更新","ok");
   } else toast((r && r.error) || "保存失败","err");
 }
@@ -2271,7 +2527,7 @@ function onUcAvatarSelect(e){
   reader.onload = async ev => {
     const r = await api("/api/usercenter","POST",{ avatar_data: ev.target.result });
     if(r && r.ok){
-      _uc = r.user; renderUcAvatar(); refreshChatAvatars();
+      _uc = r.user; renderUcAvatar(); refreshChatAvatars(); refreshAcctChip();
       toast("头像已更新（长期保存在本机）","ok");
     } else toast((r && r.error) || "头像上传失败","err");
   };
@@ -2280,7 +2536,7 @@ function onUcAvatarSelect(e){
 async function resetUcAvatar(){
   const r = await api("/api/usercenter","POST",{ avatar: "" });
   if(r && r.ok){
-    _uc = r.user; renderUcAvatar(); refreshChatAvatars();
+    _uc = r.user; renderUcAvatar(); refreshChatAvatars(); refreshAcctChip();
     toast("已恢复默认头像","ok");
   } else toast((r && r.error) || "操作失败","err");
 }
@@ -2288,7 +2544,7 @@ async function resetUcAvatar(){
 async function saveUserCenter(){
   const r = await api("/api/usercenter","POST",
     { nickname: $("#uc-nickname").value });
-  if(r && r.ok){ _uc = r.user; renderUcAvatar(); toast("账户信息已保存","ok"); }
+  if(r && r.ok){ _uc = r.user; renderUcAvatar(); refreshAcctChip(); toast("账户信息已保存","ok"); }
   else toast((r && r.error) || "保存失败","err");
 }
 
@@ -2307,7 +2563,7 @@ function renderUcPrefs(){
 
 async function setUcPref(key, val){
   const r = await api("/api/usercenter","POST",{ prefs: { [key]: val } });
-  if(r && r.ok){ _uc = r.user; applyUcLocal(_uc.prefs || {}); renderUcPrefs(); toast("偏好已保存","ok"); }
+  if(r && r.ok){ _uc = r.user; applyUcLocal(_uc.prefs || {}); renderUcPrefs(); toast("偏好已保存","ok"); obNotify("pref", key); }
   else toast((r && r.error) || "保存失败","err");
 }
 
@@ -2439,7 +2695,7 @@ async function createSession() {
 
 async function deleteSession(id) {
   if (!id) return;
-  if (!(await askConfirm({ title: "删除会话", icon: "delete", message: "确认删除该会话？删除后聊天记录不可恢复。" }))) return;
+  if (!(await askConfirm({ title: "删除会话", icon: "delete", message: "确认删除该会话？会话将移入回收站，3 天内可还原。" }))) return;
   try {
     const r = await api("/api/sessions/" + encodeURIComponent(id), "DELETE");
     if (!r || !r.ok) { toast((r && r.error) || "删除失败", "err"); return; }
@@ -2450,7 +2706,8 @@ async function deleteSession(id) {
       await renderSessionMessages(CURRENT_SESSION_ID);
     }
     await loadSessions();
-    toast("会话已删除", "ok");
+    refreshStationBadges();   // 会话已归档进回收站
+    toast("会话已删除（可在回收站还原）", "ok");
   } catch (e) { toast("删除失败：" + e.message, "err"); }
 }
 
@@ -2476,40 +2733,56 @@ async function initSessions() {
 }
 
 /* =============== 徽标状态 =============== */
+/* 只更新传入的键，未传的徽标保持原状（档案徽标由 loadProfile 等单独刷新） */
 function updateBadges(snap) {
   if (!snap) return;
-  const n = (snap.orders || []).length;
-  const badge = $("#order-badge");
-  if (n > 0) { badge.style.display = ""; badge.textContent = n; } else { badge.style.display = "none"; }
+  if (snap.orders !== undefined) {
+    const n = (snap.orders || []).length;
+    const badge = $("#order-badge");
+    if (n > 0) { badge.style.display = ""; badge.textContent = n; } else { badge.style.display = "none"; }
+  }
 
   // 购物车徽标
-  const cn = snap.cart_count || 0;
-  const cbadge = $("#cart-badge");
-  if (cbadge) {
-    if (cn > 0) { cbadge.style.display = ""; cbadge.textContent = cn; } else { cbadge.style.display = "none"; }
+  if (snap.cart_count !== undefined) {
+    const cn = snap.cart_count || 0;
+    const cbadge = $("#cart-badge");
+    if (cbadge) {
+      if (cn > 0) { cbadge.style.display = ""; cbadge.textContent = cn; } else { cbadge.style.display = "none"; }
+    }
   }
 
   // 购物清单徽标（待处理数）
-  updateListBadge(snap.list_pending || 0);
+  if (snap.list_pending !== undefined) updateListBadge(snap.list_pending || 0);
 
-  const prof = snap.profile || {};
-  const filled = Object.values(prof).filter(v => v && String(v).trim()).length;
-  const badge2 = $("#profile-badge");
-  if (filled <= 0) { badge2.innerHTML = '<span class="dot"></span>档案为空'; badge2.className = "tag-pill warn"; }
-  else if (filled < 6) { badge2.innerHTML = `<span class="dot"></span>档案已填${filled}项`; badge2.className = "tag-pill warn"; }
-  else { badge2.innerHTML = `<span class="dot"></span>档案已完善 (${filled}项)`; badge2.className = "tag-pill green"; }
+  // 消息站徽标（未读操作记录）
+  if (snap.messages_unread !== undefined) updateMsgBadge(snap.messages_unread || 0);
+
+  // 回收站徽标（暂存条目数）
+  if (snap.trash_count !== undefined) updateTrashBadge(snap.trash_count || 0);
+
+  if (snap.profile !== undefined) {
+    const prof = snap.profile || {};
+    const reqMissing = PROFILE_REQUIRED.filter(k => !(prof[k] && String(prof[k]).trim())).length;
+    const filled = Object.values(prof).filter(v => v && String(v).trim()).length;
+    const badge2 = $("#profile-badge");
+    if (filled <= 0) { badge2.innerHTML = '<span class="dot"></span>档案为空'; badge2.className = "tag-pill warn"; }
+    else if (reqMissing > 0) { badge2.innerHTML = `<span class="dot"></span>必填缺${reqMissing}项`; badge2.className = "tag-pill warn"; }
+    else { badge2.innerHTML = `<span class="dot"></span>档案已完善 (${filled}项)`; badge2.className = "tag-pill green"; }
+  }
 
   // LLM徽标
-  const llm = snap.llm || {};
-  const b = $("#llm-badge");
-  if (llm && llm.enabled) {
-    const p = (llm.success || 0) + (llm.fails || 0);
-    const green = llm.fails === 0 || (p === 0);
-    b.style.display = "";
-    b.textContent = llm.provider ? llm.provider.replace(/智谱|豆包|DeepSeek|通义千问|硅基流动|Kimi.*/, (m)=>m==="Kimi 月之暗面"?"Kimi":m.slice(0,2)) : "AI";
-    b.style.background = green ? "#52c41a" : "#faad14";
-  } else {
-    b.style.display = "none";
+  if (snap.llm !== undefined) {
+    const llm = snap.llm || {};
+    const b = $("#llm-badge");
+    if (llm && llm.enabled) {
+      const p = (llm.success || 0) + (llm.fails || 0);
+      const green = llm.fails === 0 || (p === 0);
+      b.style.display = "";
+      b.textContent = llm.provider ? llm.provider.replace(/智谱|豆包|DeepSeek|通义千问|硅基流动|Kimi.*/, (m)=>m==="Kimi 月之暗面"?"Kimi":m.slice(0,2)) : "AI";
+      b.style.background = green ? "#52c41a" : "#faad14";
+    } else {
+      b.style.display = "none";
+    }
   }
 }
 
@@ -2554,9 +2827,10 @@ async function cartAction(action, extra={}) {
   const r = await api("/api/cart","POST",{action, ...extra});
   if (r.ok) renderCart(r.cart||[], []);
   if (r.response) toast(r.response);
+  if (r.ok && (action === "remove" || action === "clear")) refreshStationBadges();   // 条目已归档进回收站
 }
 function cartRemove(i){ cartAction("remove",{index:i}); }
-async function cartClear(){ if(await askConfirm({ title: "清空购物车", icon: "remove_shopping_cart", message: "确认清空虚拟购物车？" })) cartAction("clear"); }
+async function cartClear(){ if(await askConfirm({ title: "清空购物车", icon: "remove_shopping_cart", message: "确认清空虚拟购物车？条目将移入回收站，3 天内可还原。" })) cartAction("clear"); }
 function cartToggleMonitor(i){ cartAction("monitor",{index:i}); }
 async function cartNote(i){
   const v = await askText({ title: "添加备注", placeholder: "输入备注：", okText: "保存" });
@@ -2606,6 +2880,7 @@ function renderList(items){
 async function listAction(action, extra={}){
   const r = await api("/api/shopping_list","POST",Object.assign({action}, extra));
   if(r.ok){ renderList(r.items||[]); updateListBadge(r.pending_count||0); }
+  if(r.ok && (action === "remove" || action === "clear_done" || action === "clear")) refreshStationBadges();   // 条目已归档进回收站
 }
 
 function listAdd(){
@@ -2613,10 +2888,11 @@ function listAdd(){
   if(!v) return;
   listAction("add",{content:v});
   $("#list-input").value = "";
+  obNotify("list_added");
 }
 function listRemove(i){ listAction("remove",{index:i}); }
 function listToggle(i){ listAction("toggle_done",{index:i}); }
-async function listClearDone(){ if(await askConfirm({ title: "清空已完成", icon: "delete_sweep", message: "确认清空全部已完成条目？" })) listAction("clear_done"); }
+async function listClearDone(){ if(await askConfirm({ title: "清空已完成", icon: "delete_sweep", message: "确认清空全部已完成条目？条目将移入回收站，3 天内可还原。" })) listAction("clear_done"); }
 function listToggleDoneView(){ const d = $("#list-done"); d.style.display = d.style.display === "none" ? "" : "none"; }
 
 // 去推荐：填入对话输入框并聚焦，不自动发送（抓取克制：由用户确认后再发）
@@ -2635,9 +2911,170 @@ function updateListBadge(n){
   b.style.display = n > 0 ? "" : "none";
 }
 
+/* =============== 消息站（操作记录中心） =============== */
+const MSG_TYPE_META = {
+  order_paid:   { icon: "receipt_long",  label: "下单模拟" },
+  order_cancel: { icon: "event_busy",    label: "订单取消" },
+  aftersale:    { icon: "build",         label: "售后申请" },
+  trash:        { icon: "delete",        label: "回收站" },
+  trash_auto:   { icon: "auto_delete",   label: "自动清理" },
+  system:       { icon: "info",          label: "系统" },
+};
+
+async function loadMessages(){
+  try {
+    const r = await api("/api/messages", "GET");
+    if (!r || !r.ok) return;
+    renderMessages(r.messages || []);
+    updateMsgBadge(r.unread || 0);
+  } catch (e) { console.error("loadMessages", e); }
+}
+
+function renderMessages(items){
+  const list = $("#msg-list");
+  if (!items.length) {
+    list.innerHTML = '<div class="empty"><span class="big"><span class="material-symbols-outlined">notifications</span></span>暂无操作记录 — 取消订单、申请售后等操作回执会出现在这里。</div>';
+    return;
+  }
+  list.innerHTML = items.map(m => {
+    const meta = MSG_TYPE_META[m.type] || MSG_TYPE_META.system;
+    return `
+    <div class="order-card" style="${m.read ? "" : "border-color:var(--primary);"}">
+      <div class="status-box" style="background:var(--primary-soft);">
+        <span class="material-symbols-outlined" style="font-size:26px;">${meta.icon}</span>
+        <div class="small" style="margin-top:4px;">${meta.label}</div>
+      </div>
+      <div class="info">
+        <div class="pname" style="display:flex;align-items:center;gap:6px;">
+          ${m.read ? "" : '<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;"></span>'}
+          <span>${escapeHtml(m.title)}</span>
+        </div>
+        ${m.detail ? `<div class="meta" style="white-space:pre-wrap;">${escapeHtml(m.detail)}</div>` : ""}
+        <div class="meta"><span><span class="material-symbols-outlined">schedule</span> ${escapeHtml(m.time || "")}</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function updateMsgBadge(n){
+  const b = $("#msg-badge");
+  if (!b) return;
+  b.textContent = n;
+  b.style.display = n > 0 ? "" : "none";
+}
+
+async function msgMarkAllRead(){
+  const r = await api("/api/messages", "POST", { action: "read_all" });
+  if (r && r.ok) { loadMessages(); toast("已全部标记为已读", "ok"); }
+}
+
+async function msgClear(){
+  if (!(await askConfirm({ title: "清空消息站", icon: "delete_sweep", message: "确认清空全部操作记录？清空后不可恢复。" }))) return;
+  const r = await api("/api/messages", "POST", { action: "clear" });
+  if (r && r.ok) { loadMessages(); toast("操作记录已清空", "ok"); }
+}
+
+/* =============== 回收站 =============== */
+const TRASH_TYPE_META = {
+  session:         { icon: "forum",                label: "会话" },
+  cart_item:       { icon: "shopping_cart",        label: "购物车条目" },
+  cart_clear:      { icon: "remove_shopping_cart", label: "虚拟购物车" },
+  list_item:       { icon: "checklist",            label: "清单条目" },
+  list_clear_done: { icon: "done_all",             label: "清单已完成" },
+  list_clear:      { icon: "checklist",            label: "购物清单" },
+  profile:         { icon: "person",               label: "偏好档案" },
+  apikey:          { icon: "key",                  label: "API Key" },
+};
+
+function trashLeftText(expireAt){
+  if (!expireAt) return "—";
+  const ms = new Date(expireAt.replace("-", "/").replace("-", "/")) - new Date();
+  if (isNaN(ms) || ms <= 0) return "已过期，即将自动清理";
+  const h = ms / 3600000;
+  if (h >= 24) return "剩约 " + Math.floor(h / 24) + " 天";
+  if (h >= 1)  return "剩约 " + Math.floor(h) + " 小时";
+  return "剩不足 1 小时";
+}
+
+async function loadTrash(){
+  try {
+    const r = await api("/api/trash", "GET");
+    if (!r || !r.ok) return;
+    renderTrash(r.items || []);
+    updateTrashBadge((r.items || []).length);
+  } catch (e) { console.error("loadTrash", e); }
+}
+
+function renderTrash(items){
+  const list = $("#trash-list");
+  if (!items.length) {
+    list.innerHTML = '<div class="empty"><span class="big"><span class="material-symbols-outlined">delete</span></span>回收站为空 — 删除的会话/购物车/清单/档案会先暂存在这里（3 天内可还原）。</div>';
+    return;
+  }
+  list.innerHTML = items.map(it => {
+    const meta = TRASH_TYPE_META[it.type] || { icon: "info", label: "数据" };
+    return `
+    <div class="order-card">
+      <div class="status-box" style="background:var(--warn-bg);">
+        <span class="material-symbols-outlined" style="font-size:26px;">${meta.icon}</span>
+        <div class="small" style="margin-top:4px;">${meta.label}</div>
+      </div>
+      <div class="info">
+        <div class="pname">${escapeHtml(it.title)}</div>
+        ${it.summary ? `<div class="meta">${escapeHtml(it.summary)}</div>` : ""}
+        <div class="meta">
+          <span><span class="material-symbols-outlined">delete</span> 删除于 ${escapeHtml(it.deleted_at || "")}</span>
+          <span><span class="material-symbols-outlined">timer</span> ${trashLeftText(it.expire_at || "")}后自动彻底删除</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn sm primary" onclick="trashRestore('${it.id}')"><span class="material-symbols-outlined">restore_from_trash</span> 还原</button>
+        <button class="btn sm danger" onclick="trashPurge('${it.id}')"><span class="material-symbols-outlined">delete_forever</span> 彻底删除</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function updateTrashBadge(n){
+  const b = $("#trash-badge");
+  if (!b) return;
+  b.textContent = n;
+  b.style.display = n > 0 ? "" : "none";
+}
+
+async function trashAction(action, id){
+  const r = await api("/api/trash", "POST", id ? { action, id } : { action });
+  if (!r || !r.ok) { toast((r && r.error) || "操作失败", "err"); return false; }
+  renderTrash(r.items || []);
+  updateTrashBadge((r.items || []).length);
+  refreshStationBadges();
+  return true;
+}
+
+async function trashRestore(id){
+  const ok = await trashAction("restore", id);
+  if (ok) { toast("已还原（会话类可在会话列表查看，其余到对应页面刷新查看）", "ok"); loadOrders(); }
+}
+async function trashPurge(id){
+  if (!(await askConfirm({ title: "彻底删除", icon: "delete_forever", message: "确认彻底删除该条数据？删除后不可恢复。" }))) return;
+  if (await trashAction("purge", id)) toast("已彻底删除", "ok");
+}
+async function trashClear(){
+  if (!(await askConfirm({ title: "清空回收站", icon: "delete_forever", message: "确认清空回收站？全部暂存数据将彻底删除、不可恢复。" }))) return;
+  if (await trashAction("clear")) toast("回收站已清空", "ok");
+}
+
+/* 操作发生后刷新消息站/回收站两枚徽标（一次健康检查顺带带回） */
+async function refreshStationBadges(){
+  try {
+    const h = await api("/api/health", "GET");
+    if (h && h.ok) updateBadges({ messages_unread: h.messages_unread, trash_count: h.trash_count });
+  } catch (e) { /* 静默 */ }
+}
+
 /* 切到购物车tab时自动加载 */
 const _origSwitchTab = switchTab;
-switchTab = function(id){ _origSwitchTab(id); if(id==="tab-cart") loadCart(); };
+switchTab = function(id){ _origSwitchTab(id); if(id==="tab-cart") loadCart(); if(id==="tab-messages") loadMessages(); if(id==="tab-trash") loadTrash(); };
 
 /* =============== Tab 5: API Key 设置 =============== */
 const PRESETS = {
@@ -2685,7 +3122,7 @@ async function apiKeyAction(action){
   const model = $("#api-model-input").value.trim();
 
   if(action === "set" && !key){ toast("请先填写 API Key","warn"); return; }
-  if(action === "clear" && !(await askConfirm({ title: "删除 API Key", icon: "key_off", message: "确认删除本地保存的 API Key 吗？" }))) return;
+  if(action === "clear" && !(await askConfirm({ title: "删除 API Key", icon: "key_off", message: "确认删除本地保存的 API Key 吗？配置将移入回收站，3 天内可还原。" }))) return;
 
   const btnEvt = {set:"自动探测中（需要几秒钟，最多探测8个服务商）…", test:"连通性测试中…", clear:"删除中…"};
   toast(btnEvt[action]);
@@ -2700,8 +3137,10 @@ async function apiKeyAction(action){
     if(action === "set"){
       $("#api-base-input").value  = (r.config && r.config.base_url) || "";
       $("#api-model-input").value = (r.config && r.config.model) || "";
+      obNotify("key_set");
     }
   }
+  if(action === "clear" && r.ok) refreshStationBadges();   // Key 配置已归档进回收站
   renderApiStatus(r.config || {});
   // 同步更新侧栏徽标
   const snap = await api("/api/health").catch(() => ({}));
@@ -2764,6 +3203,7 @@ async function loginAction(action, platform, boxId = "login-states"){
       : action === "login" ? "正在弹出浏览器，请在窗口内扫码/手动登录（最长等 3 分钟，关闭窗口即可取消）…"
       : `正在清除 ${platform} 登录态…`);
   const r = await api("/api/login","POST",{action, platform});
+  obNotify("login_action", action);
   if(!r){ toast("请求失败","err"); return; }
   if(!r.ok){ toast(r.message || "操作失败","warn"); }
   else if(action === "check"){ toast(r.message || `${platform}：${r.status}`,"ok"); }
@@ -2773,24 +3213,65 @@ async function loginAction(action, platform, boxId = "login-states"){
 
 
 /* =============== Tab 2: 档案 =============== */
-const PROFILE_FIELDS = [
-  ["height", "身高 (cm)"],
-  ["weight", "体重 (kg)"],
-  ["shoulder", "肩宽 (cm，可选)"],
-  ["waist", "腰围 (cm，可选)"],
-  ["size_habit", "尺码习惯（偏宽松/合身/偏紧，选码偏大/偏小）"],
-  ["color_like", "喜爱色系（逗号分隔）"],
-  ["color_dislike", "避雷颜色（逗号分隔）"],
-  ["style_like", "风格偏好 2-3 个（逗号分隔）"],
-  ["material_like", "材质偏好：喜欢的面料"],
-  ["material_dislike", "材质避雷：不喜欢的面料"],
-  ["fit_like", "版型偏好（如修身/收腰/宽松）"],
-  ["fit_dislike", "版型避雷"],
-  ["skin_type", "肤质（可选）"],
-  ["other_preference", "其他偏好（可选）"],
-  ["receiver", "收货人姓名"],
-  ["phone", "联系电话"],
-  ["address", "收货地址"],
+/* 必填 = 决定推荐准确度与下单流程的最低集合；选填按角度分组，填得越全推荐越准 */
+const PROFILE_REQUIRED = ["height","weight","size_habit","color_like","color_dislike","budget_max","priority_factor","receiver","phone","address"];
+const PROFILE_GROUPS = [
+  { required: true, name: "基础画像与收货信息",
+    hint: "这 10 项直接决定推荐准确度，收货信息用于下单模拟",
+    fields: [
+      ["height", "身高 (cm)"],
+      ["weight", "体重 (kg)"],
+      ["size_habit", "尺码习惯（偏宽松/合身/偏紧，选码偏大/偏小）"],
+      ["color_like", "喜爱色系（逗号分隔）"],
+      ["color_dislike", "避雷颜色（逗号分隔）"],
+      ["budget_max", "预算上限 (元)"],
+      ["priority_factor", "优先因素（价格/质量/颜值/耐用/品牌/发货速度）"],
+      ["receiver", "收货人姓名"],
+      ["phone", "联系电话"],
+      ["address", "收货地址"],
+    ]},
+  { name: "个人画像与体型尺码",
+    fields: [
+      ["age_range", "年龄段（如 18-24 / 25-30 / 30-40 / 40+）"],
+      ["occupation", "职业（如学生 / 上班族 / 教师）"],
+      ["shoulder", "肩宽 (cm)"],
+      ["waist", "腰围 (cm)"],
+      ["top_size", "上装尺码（如 M / 170/92A）"],
+      ["bottom_size", "下装尺码（如 32 / 170/74A）"],
+      ["shoe_size", "鞋码（如 42）"],
+      ["skin_type", "肤质（如敏感肌 / 油性）"],
+    ]},
+  { name: "风格审美与场景",
+    fields: [
+      ["style_like", "风格偏好 2-3 个（逗号分隔）"],
+      ["fit_like", "版型偏好（如修身/收腰/宽松）"],
+      ["fit_dislike", "版型避雷"],
+      ["usage_scenario", "常用场景（如通勤/运动/居家/旅行，逗号分隔）"],
+      ["dislike_elements", "讨厌的元素（如荧光色/廉价拉链）"],
+      ["other_preference", "其他偏好（如配饰偏好/忌口/特殊需求）"],
+    ]},
+  { name: "材质与气候",
+    fields: [
+      ["material_like", "材质偏好：喜欢的面料"],
+      ["material_dislike", "材质避雷：不喜欢的面料"],
+      ["climate", "所在气候（如南方湿热 / 北方干冷 / 四季分明）"],
+    ]},
+  { name: "品牌与渠道",
+    fields: [
+      ["brands_like", "品牌偏好-允许（逗号分隔）"],
+      ["brands_dislike", "品牌偏好-排除（逗号分隔）"],
+      ["accept_no_name", "是否接受杂牌（是/否）"],
+      ["accept_presale", "是否接受预售（是/否）"],
+      ["ship_region", "发货地区偏好（如江浙沪/广东/不限）"],
+    ]},
+  { name: "决策与服务偏好",
+    fields: [
+      ["secondary_factor", "次要因素（价格/质量/颜值/耐用/品牌/发货速度）"],
+      ["priority_order", "选购优先级排序（价格/品质/外观/发货速度/品牌，逗号分隔）"],
+      ["ship_fee_pref", "运费偏好（优先免运费/无所谓）"],
+      ["after_sale_pref", "售后偏好（如优先7天无理由+运费险）"],
+      ["special_needs", "特殊需求（如礼盒包装/加急）"],
+    ]},
 ];
 
 async function loadProfile() {
@@ -2798,34 +3279,74 @@ async function loadProfile() {
   const data = await api("/api/profile", "GET");
   if (!data.ok) { toast("读取档案失败", "err"); return; }
   const prof = data.profile || {};
-  form.innerHTML =
-    `<table class="profile-table"><tbody>` +
-    PROFILE_FIELDS.map(([k, label]) => `
-      <tr>
-        <th>${label}</th>
-        <td><input type="text" name="${k}" value="${escapeHtml(prof[k] || "")}" placeholder="留空表示暂不填写"></td>
-      </tr>
-    `).join("") +
-    `</tbody></table>`;
+  form.innerHTML = PROFILE_GROUPS.map(g => `
+    <div class="profile-group ${g.required ? "required" : ""}">
+      <div class="profile-group-head">
+        <span class="pg-tag">${g.required ? "必填" : "选填"}</span><span>${escapeHtml(g.name)}</span>
+        <span class="pg-hint">${escapeHtml(g.hint || "不填不影响使用，填了推荐更准")}</span>
+      </div>
+      <table class="profile-table"><tbody>` +
+      g.fields.map(([k, label]) => `
+        <tr>
+          <th>${label}</th>
+          <td><input type="text" name="${k}" value="${escapeHtml(prof[k] || "")}" placeholder="留空表示暂不填写"></td>
+        </tr>
+      `).join("") +
+      `</tbody></table>
+    </div>`).join("");
+  updateBadges({ profile: data.profile || {} });   // 档案徽标（必填缺口）随档案读取/保存即时刷新
+  snapshotProfileBaseline();
 }
 function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[m]));
 }
+/* 档案未保存修改检测：以最近一次载入/保存成功后的表单值为基线，逐项比对 */
+let _profileBaseline = null;
+function snapshotProfileBaseline() {
+  _profileBaseline = {};
+  $$("#profile-form input").forEach(i => { _profileBaseline[i.name] = (i.value || "").trim(); });
+}
+function isProfileDirty() {
+  if (!_profileBaseline) return false;
+  for (const i of $$("#profile-form input")) {
+    if ((i.value || "").trim() !== (_profileBaseline[i.name] || "")) return true;
+  }
+  return false;
+}
+async function confirmProfileLeave(contextText) {
+  if (!isProfileDirty()) return true;
+  const r = await askConfirm({
+    title: "未保存的修改",
+    icon: "edit_note",
+    danger: false,
+    message: "个人购物偏好档案有未保存的修改，即将" + (contextText || "离开当前页面") +
+      "：点「保存」自动保存后继续，点「放弃修改」丢弃修改后继续，点「留在本页」返回继续编辑。",
+    okText: "保存",
+    cancelText: "留在本页",
+    thirdText: "放弃修改",
+    thirdValue: "discard"
+  });
+  if (r === "discard") { _profileBaseline = null; return true; }
+  if (r !== true) return false;
+  try { return await saveProfile(); } catch (e) { return false; }
+}
 async function saveProfile() {
   const payload = {};
   $$("#profile-form input").forEach(i => {
-    if (i.value && i.value.trim()) payload[i.name] = i.value.trim();
+    payload[i.name] = (i.value || "").trim();   // 空值也要提交：清空字段=清空档案项
   });
   const r = await api("/api/profile", "POST", { action: "update", payload });
   if (r.ok) {
+    // 用户中心保存档案只在本地生效，不再把更新摘要推送进对话购物
     toast("档案已保存", "ok");
     loadProfile();
-    if (r.response) appendMsg("ai", renderMarkdown(r.response));
-  } else {
-    toast("保存失败：" + (r.error || ""), "err");
+    obNotify("profile_saved");
+    return true;
   }
+  toast("保存失败：" + (r.error || ""), "err");
+  return false;
 }
 async function viewProfile() {
   const r = await api("/api/profile", "POST", { action: "view", payload: "" });
@@ -2836,11 +3357,12 @@ async function viewProfile() {
   }
 }
 async function clearProfile() {
-  if (!(await askConfirm({ title: "清空档案", icon: "warning", message: "真的要清空全部档案吗？此操作不可撤销。" }))) return;
+  if (!(await askConfirm({ title: "清空档案", icon: "warning", message: "确认清空全部档案？档案将移入回收站，3 天内可还原。" }))) return;
   const r = await api("/api/profile", "POST", { action: "clear", payload: "" });
-  if (r.ok) { toast("档案已清空", "ok"); loadProfile(); }
+  if (r.ok) { toast("档案已清空，可在「回收站」还原", "ok"); loadProfile(); refreshStationBadges(); }
 }
 async function collectProfile() {
+  obNotify("collect_open");
   document.getElementById("collect-card").style.display = "block";
   const r = await api("/api/profile", "POST", { action: "collect", payload: "" });
   if (r.ok) {
@@ -2946,8 +3468,8 @@ async function submitAftersale(oid) {
   const r = await api("/api/aftersale", "POST", { order_id: oid, reason });
   if (!r.ok) { toast(r.error || "提交失败", "err"); return; }
   closeModal();
-  toast("售后已提交", "ok");
-  appendMsg("ai", renderMarkdown(r.response || ""));
+  toast("售后已提交，完整回执已存入「消息站」", "ok");
+  refreshStationBadges();
   loadOrders();
   switchTab("tab-orders");
 }
@@ -2956,8 +3478,8 @@ async function cancelOrder(oid) {
   if (reason === null) return;
   const r = await api("/api/cancel", "POST", { order_id: oid, reason });
   if (!r.ok) { toast(r.error || "取消失败", "err"); return; }
-  toast("订单已取消", "ok");
-  appendMsg("ai", renderMarkdown(r.response || ""));
+  toast("订单已取消，完整回执已存入「消息站」", "ok");
+  refreshStationBadges();
   loadOrders();
 }
 function openModal(html) {
@@ -2975,8 +3497,8 @@ function _finishConfirm(ok) {
   const resolve = _confirmResolve; _confirmResolve = null;
   $("#confirm-mask").classList.remove("open");
   document.removeEventListener("keydown", _confirmKeydown);
-  if (_confirmHasInput) resolve(ok ? ($("#confirm-input") ? $("#confirm-input").value : "") : null);
-  else resolve(!!ok);
+  if (_confirmHasInput) resolve(ok === true ? ($("#confirm-input") ? $("#confirm-input").value : "") : null);
+  else resolve(ok);   // 允许第三方按钮解析出字符串值（如 "discard"），普通确认仍为 true/false
   _confirmHasInput = false;
 }
 function _confirmKeydown(e) {
@@ -2994,6 +3516,7 @@ function _openConfirmBox(opts) {
     <div class="confirm-msg" id="confirm-msg"></div>
     ${_confirmHasInput ? '<input class="input" id="confirm-input" style="margin-bottom:16px;">' : ""}
     <div class="confirm-actions">
+      ${o.thirdText ? '<button class="btn" id="confirm-third"></button>' : ""}
       <button class="btn" id="confirm-cancel"></button>
       <button class="btn ${o.danger ? "danger" : "primary"}" id="confirm-ok"></button>
     </div>`;
@@ -3002,6 +3525,10 @@ function _openConfirmBox(opts) {
   $("#confirm-msg").textContent = o.message || "";
   $("#confirm-cancel").textContent = o.cancelText;
   $("#confirm-ok").textContent = o.okText;
+  if (o.thirdText) {
+    $("#confirm-third").textContent = o.thirdText;
+    $("#confirm-third").onclick = () => _finishConfirm(o.thirdValue || "third");
+  }
   if (_confirmHasInput) {
     $("#confirm-input").placeholder = o.placeholder || "";
     $("#confirm-input").value = o.value || "";
@@ -3107,10 +3634,93 @@ function buyRec(rank) {
   sendMsg("买第" + (["零","一","二","三","四","五","六"][n] || n) + "款");
 }
 
-/* =============== 新手引导（仅首次） =============== */
-let _obStep = 1;
+/* =============== 新手引导（仅首次）：分节向导 + 手把手任务模式 =============== */
+const OB_SECTIONS = [
+  { name:"认识助手", icon:"handshake",
+    steps:[ { key:"welcome", title:"欢迎与安全边界", mode:"modal" },
+            { key:"account", title:"设置你的账户",   mode:"modal" } ] },
+  { name:"用户中心", icon:"tune",
+    steps:[ { key:"uc_prefs",   title:"界面与行为偏好",   mode:"task" },
+            { key:"uc_profile", title:"个人购物偏好档案", mode:"task" } ] },
+  { name:"配置库", icon:"settings",
+    steps:[ { key:"api_key", title:"AI 助手 Key",   mode:"task" },
+            { key:"login",   title:"购物网站登录态", mode:"task" } ] },
+  { name:"核心功能", icon:"rocket_launch",
+    steps:[ { key:"chat", title:"对话购物",   mode:"task" },
+            { key:"list", title:"购物清单",   mode:"task" },
+            { key:"cart", title:"虚拟购物车", mode:"task" },
+            { key:"done", title:"完成准备",   mode:"modal" } ] },
+];
+const OB_TOTAL = OB_SECTIONS.reduce((n, s) => n + s.steps.length, 0);
+const OB_FLAT = [];
+OB_SECTIONS.forEach((s, si) => s.steps.forEach((_, ti) => OB_FLAT.push([si, ti])));
+let OB_IDX = 0;             // 当前扁平步骤索引（0 基）
+let OB_TASK = null;         // 任务模式状态：{ key, phase }；非任务步为 null
 let _obGender = null;
-let _obAvatarData = null;   // 引导期选择的头像 data URI，第 2 步保存时一并提交
+let _obAvatarData = null;   // 引导期选择的头像 data URI，账户步保存时一并提交
+
+function obLoc(i){ return OB_FLAT[Math.max(0, Math.min(OB_TOTAL - 1, i))]; }
+function obFlatStart(si){ let n = 0; for (let k = 0; k < si; k++) n += OB_SECTIONS[k].steps.length; return n; }
+function obCurKey(){ const [si, ti] = obLoc(OB_IDX); return OB_SECTIONS[si].steps[ti].key; }
+
+/* 任务模式剧本：每步拆成小步，用户在真实界面上亲手操作；
+   done 里的事件由 obNotify 侦测（tab:页签 / skin / pref / profile_saved / collect_open /
+   key_set / login_action / chat_sent / chat_reply / list_added），命中即自动前进。
+   无 done 的小步靠「下一步」手动前进；navTab 命中时该小步自动视为已完成。 */
+const OB_TASKS = {
+  uc_prefs: { phases:[
+    { navTab:"tab-profile", anchor:'.nav-item[data-tab="tab-profile"]', done:["tab:tab-profile"],
+      title:"打开「用户中心」", text:"点击左侧被白色虚线圈出的「用户中心」。" },
+    { tab:"tab-profile", anchor:"#uc-prefs-card", done:["skin","pref"], stay:true,
+      ack:"偏好已生效！这块随便玩：换主题色、字体、字号、人群交互风格都行——体验好了点「下一步」。",
+      title:"试一个偏好设置", text:"试试点一个「主题色」圆点、或切换「文字大小」——点选立即生效。之后随时可回这里调整字号、字体与人群交互风格（AI 说话语气会跟着变）。" },
+  ]},
+  uc_profile: { phases:[
+    { tab:"tab-profile", anchor:"#uc-profile-card .profile-actions", done:["collect_open","profile_saved"], stay:true,
+      ack:"档案已开始记录！可以继续多填几项（每项可跳过），或点「下一步」继续。",
+      title:"填一点档案", text:"点「分批引导录入」按提示填几项（必填在前，每项都可跳过）；或直接在下方表格按「必填 / 选填」分组填好再点「保存修改」。档案是所有推荐的永久参考——越全越准、追问越少。" },
+  ]},
+  api_key: { phases:[
+    { navTab:"tab-api", anchor:'.nav-item[data-tab="tab-api"]', done:["tab:tab-api"],
+      title:"打开「配置库」", text:"点击被白色虚线圈出的「配置库」。" },
+    { tab:"tab-api", anchor:"#api-form-col", done:["key_set"], stay:true,
+      ack:"Key 已保存生效！可以点「测试连通性」看看服务商识别结果，好了点「下一步」。",
+      title:"配一个 AI Key（可跳过）", text:"把任一服务商的 Key 粘进输入框，点「自动探测 + 保存」。暂时没有 Key 就点「下一步」——不影响使用，自动回退内置规则引擎。" },
+  ]},
+  login: { phases:[
+    { tab:"tab-api", anchor:"#login-states", done:["login_action"], stay:true,
+      ack:"已在后台处理！扫码完成后这里的状态会自动刷新；可以继续检测别的平台，好了点「下一步」。",
+      title:"京东 / 淘宝登录态", text:"点「扫码登录」，在弹出的真实浏览器窗口里自行扫码（程序绝不过手账号密码）；也可以先「立即检测」。不方便扫码就点「下一步」，之后随时可来配置库补办。" },
+  ]},
+  chat: { phases:[
+    { navTab:"tab-chat", anchor:'.nav-item[data-tab="tab-chat"]', done:["tab:tab-chat"],
+      title:"进入「对话购物」", text:"点击被白色虚线圈出的「对话购物」——一切的主入口。" },
+    { tab:"tab-chat", anchor:".chat-input-wrap", prefill:"买一条夏天通勤连衣裙，预算200以内", prefillTarget:"#chat-input", done:["chat_sent"],
+      title:"发出第一句需求", text:"需求已帮你填进输入框——点右侧发送按钮（或按 Enter）。接下来选品、打分、出推荐都自动完成。" },
+    { waiting:true, done:["chat_reply"],
+      title:"看 AI 干活", text:"需求已发出，正在澄清/选品/打分……真实抓取约 15-30 秒，请稍候。想先看别的随时点「下一步」。" },
+    { tab:"tab-chat", anchor:".chat-input-wrap", done:["chat_sent"],
+      extra:{ label:"帮我填「买第1款」", prefill:"买第1款", target:"#chat-input" },
+      title:"推荐已出，试着调整", text:"看到 TOP3 推荐了吗？点右侧按钮帮你填好「买第1款」，再点发送即可进入下单模拟；也可以自己输入「换更便宜的」「给我前5名」。" },
+    { tab:"tab-chat", manual:true,
+      title:"下单模拟（可选）", text:"对助手的回复「确认」即可完成下单模拟——会有支付风险提醒，系统绝不代付。对话购物体验到此完成，去逛逛「购物清单」吧。" },
+  ]},
+  list: { phases:[
+    { navTab:"tab-list", anchor:'.nav-item[data-tab="tab-list"]', done:["tab:tab-list"],
+      title:"进入「购物清单」", text:"点击被白色虚线圈出的「购物清单」——购买前的需求池。" },
+    { tab:"tab-list", anchor:"#list-add-row", prefill:"夏天房间太热想凉快点", prefillTarget:"#list-input", done:["list_added"], stay:true,
+      ack:"已记入清单！可以再加几条、或点条目上的「去推荐」看它怎么进对话——好了点「下一步」。",
+      title:"记一条模糊需求", text:"需求已帮你填好——点「添加」把它记下来。清单收藏的是需求不是商品，写得再模糊也没关系。" },
+  ]},
+  cart: { phases:[
+    { navTab:"tab-cart", anchor:'.nav-item[data-tab="tab-cart"]', done:["tab:tab-cart"],
+      title:"进入「虚拟购物车」", text:"点击被白色虚线圈出的「虚拟购物车」。" },
+    { tab:"tab-cart", manual:true,
+      title:"收藏与降价监控", text:"收藏方法：对话里说「把第1款加入购物车」。之后在这里点「检查价格变动」，降价会提醒你。它是本系统的收藏车，不等同于平台官方购物车。" },
+  ]},
+};
+
+function obClearSpot(){ $$(".ob-spot").forEach(el => el.classList.remove("ob-spot")); }
 
 function maybeOnboard(){
   // 「已引导」按账户存服务端（user_center.onboarded）；localStorage 仅作旧账户迁移期的本机兜底
@@ -3118,72 +3728,233 @@ function maybeOnboard(){
     let local = false;
     try{ local = !!localStorage.getItem("sa_onboarded"); }catch(e){}
     if(local || (_uc && _uc.onboarded)) return;
-    showOnboardStep(1);
+    OB_IDX = 0;
+    showOnboardStep(0);
   });
 }
-function showOnboardStep(n){
-  _obStep = n;
+
+function showOnboardStep(i){
+  OB_IDX = Math.max(0, Math.min(OB_TOTAL - 1, i));
+  const [si, ti] = obLoc(OB_IDX);
+  const sec = OB_SECTIONS[si], step = sec.steps[ti];
+  obTaskCleanup();
+  if (step.mode === "task"){ enterObTask(si, step); return; }
+  obClearSpot();
   $("#onboard-mask").style.display = "grid";
-  $("#onboard-steps").innerHTML = [1,2,3,4].map(i => `<span class="${i<=n?"on":""}"></span>`).join("");
-  const body = $("#onboard-body");
-  if(n === 1){
-    body.innerHTML = `
-      <h3 style="margin-bottom:8px;">欢迎使用购物 AI 助手</h3>
-      <div class="help" style="line-height:2.1;">
-        一句话说出购物需求，自动完成 <b>选品 → 打分 → TOP3 推荐 → 下单模拟 → 物流跟踪</b> 全流程。<br>
-        · 四套皮肤 × 深色模式（右上角随时切换）<br>
-        · 商品链接点击 / Ctrl+点击均可新窗口打开<br>
-        · 所有数据仅保存在本机；下单前必有二次确认
-      </div>`;
-    $("#onboard-next").textContent = "下一步";
-  } else if(n === 2){
-    const color = (_uc && _uc.avatar_color) || "classic";
-    _obGender = (_uc && _uc.gender) || "";
-    _obAvatarData = null;
-    body.innerHTML = `
-      <h3 style="margin-bottom:8px;">先认识一下：设置你的账户</h3>
-      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;">
-        <div class="uc-avatar ${color}" id="ob-avatar">${((_uc&&_uc.nickname)||"用").charAt(0).toUpperCase()}</div>
-        <div style="flex:1;min-width:220px;">
-          <input type="text" class="input" id="ob-nickname" maxlength="20" placeholder="怎么称呼你？（可跳过）">
-          <div class="help" style="margin-top:8px;">性别（用于挑选系统默认头像）：</div>
-          <div class="seg" id="ob-gender" style="margin-top:4px;"></div>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label class="btn sm ghost" style="cursor:pointer;margin:0;" title="上传自定义头像（可选，长期保存在本机）">
-              <span class="material-symbols-outlined">upload</span> 上传头像（可选）
-              <input type="file" id="ob-avatar-input" accept="image/*" style="display:none" onchange="obPickAvatar(event)">
-            </label>
-            <span class="help" id="ob-avatar-hint">不上传则按性别使用系统默认头像</span>
-          </div>
-        </div>
-      </div>`;
+  $("#ob-resume").style.display = "none";
+  $("#ob-ico").textContent = sec.icon;
+  $("#ob-sec-name").textContent = `第 ${si+1} 节 · ${sec.name}`;
+  $("#ob-sec-sub").textContent = `全局步骤 ${OB_IDX+1} / ${OB_TOTAL} · 本节第 ${ti+1} / ${sec.steps.length} 步`;
+  $("#ob-bar").style.width = Math.round(((OB_IDX+1) / OB_TOTAL) * 100) + "%";
+  $("#ob-sections").innerHTML = OB_SECTIONS.map((s, k) => {
+    const cls = k < si ? "done" : k === si ? "cur" : "";
+    const ico = k < si ? "check_circle" : k === si ? s.icon : "radio_button_unchecked";
+    return `<span class="ob-sec-pill ${cls}"><span class="material-symbols-outlined">${ico}</span>${s.name}</span>`;
+  }).join("");
+  $("#ob-steptag").textContent = sec.steps.length > 1
+    ? "本节步骤：" + sec.steps.map((t, k) => (k === ti ? "「" + t.title + "」（当前）" : t.title)).join(" · ")
+    : "";
+  $("#ob-prev").style.visibility = OB_IDX > 0 ? "visible" : "hidden";
+  $("#ob-skip-sec").style.display = si < OB_SECTIONS.length - 1 ? "" : "none";
+  $("#ob-next").textContent = step.key === "account" ? "保存并下一步"
+    : step.key === "done" ? "完成引导，开始体验" : "下一步";
+  $("#onboard-body").innerHTML = OB_BODY[step.key]();
+  if (step.key === "account"){
     $("#ob-gender").innerHTML = UC_GENDERS.map(([v,label]) =>
       `<button class="${_obGender===v?"active":""}" onclick="obPickGender('${v}')">${label}</button>`).join("");
-    $("#ob-nickname").value = (_uc && _uc.nickname) || "";
+    // 预填优先级：已有昵称 > 注册账户名（首轮优化：首次进来不再从空白开始）
+    $("#ob-nickname").value = (_uc && _uc.nickname) || saUsername() || "";
     if (_obGender) obPickGender(_obGender);   // 已有性别时进入即预览对应默认头像
-    $("#onboard-next").textContent = "保存并下一步";
-  } else if(n === 3){
-    body.innerHTML = `
-      <h3 style="margin-bottom:8px;">配置一个购物网站账户（可选，推荐）</h3>
-      <div class="help" style="line-height:1.9;margin-bottom:12px;">
-        配置京东 / 淘宝登录态后，抓取到的商品信息更完整（价格、库存与优惠更准）。<br>
-        点「扫码登录」会弹出浏览器窗口，<b>请在窗口内自行扫码，程序绝不过手账号密码</b>。<br>
-        现在没空也可以跳过，之后随时在「配置库」里完成。
-      </div>
-      <div id="ob-login-states" style="display:flex;flex-direction:column;gap:10px;"></div>`;
-    $("#onboard-next").textContent = "下一步";
-    loadLoginStates("ob-login-states");
-  } else {
-    body.innerHTML = `
-      <h3 style="margin-bottom:8px;">一切就绪</h3>
-      <div class="help" style="line-height:2.1;">
-        试试对助手说：<b>「买一条夏天的连衣裙，预算200以内」</b><br>
-        随时可在「用户中心」调整字号、字体、人群交互风格、浏览器弹出方式等偏好；<br>
-        在「配置库」可补充网站登录态与 AI Key。
-      </div>`;
-    $("#onboard-next").textContent = "开始逛逛";
   }
 }
+
+/* ---------- 任务模式引擎 ---------- */
+function obActiveTabId(){ const p = $(".tab-panel.active"); return p ? p.id : ""; }
+
+function enterObTask(si, step){
+  OB_TASK = { key: step.key, phase: 0 };
+  $("#onboard-mask").style.display = "none";
+  $("#ob-resume").style.display = "none";
+  $("#ob-blocker").style.display = "block";
+  $("#ob-dock").style.display = "block";
+  const sec = OB_SECTIONS[si];
+  $("#ob-dock-ico").textContent = sec.icon;
+  $("#ob-dock-sec").textContent = `第 ${si+1} 节 · ${sec.name}`;
+  runObPhase();
+  window.addEventListener("resize", obDockPlace);
+  window.addEventListener("scroll", obDockPlace, true);
+}
+
+function runObPhase(){
+  if (!OB_TASK) return;
+  const phases = OB_TASKS[OB_TASK.key].phases;
+  const ph = phases[OB_TASK.phase];
+  // 导航小步：已在该页签则自动视为完成，直接进下一个小步
+  if (ph.navTab && obActiveTabId() === ph.navTab){
+    OB_TASK.phase++;
+    if (OB_TASK.phase < phases.length) return runObPhase();
+    return obTaskFinish(true);
+  }
+  // 内容小步：确保目标页签已打开
+  if (ph.tab && obActiveTabId() !== ph.tab) _switchTab(ph.tab);
+  ph.__acked = false;   // 实践型小步（stay）重新留白，等待用户这一轮的操作
+  $("#ob-dock-step").textContent = `全局步骤 ${OB_IDX+1}/${OB_TOTAL} · 本步 ${OB_TASK.phase+1}/${phases.length} · ${ph.title}`;
+  $("#ob-dock-bar").style.width = Math.round(((OB_IDX+1) / OB_TOTAL) * 100) + "%";
+  $("#ob-dock-back").style.visibility = (OB_IDX === 0 && OB_TASK.phase === 0) ? "hidden" : "visible";
+  $("#ob-dock-text").innerHTML = "<b>" + ph.title + "</b>" + (ph.text || "");
+  const extra = $("#ob-dock-extra");
+  extra.style.display = ph.extra ? "inline-flex" : "none";
+  if (ph.extra) extra.textContent = ph.extra.label;
+  obClearSpot();
+  if (ph.prefillTarget){
+    const inp = $(ph.prefillTarget);
+    if (inp && !inp.value.trim()) inp.value = ph.prefill || "";
+    if (inp && inp.id === "chat-input") autoResizeInput();
+  }
+  setTimeout(() => {
+    if (!OB_TASK) return;
+    const cur = OB_TASKS[OB_TASK.key].phases[OB_TASK.phase];
+    if (cur !== ph) return;   // 期间已切小步，丢弃过期定位
+    const el = ph.anchor ? $(ph.anchor) : null;
+    if (el){
+      el.classList.add("ob-spot");
+      el.scrollIntoView({ block:"nearest", inline:"nearest" });
+    }
+    obDockPlace();
+  }, 280);
+}
+
+function obDockPlace(){
+  if (!OB_TASK) return;
+  const phases = OB_TASKS[OB_TASK.key].phases;
+  const ph = phases[OB_TASK.phase];
+  if (!ph) return;
+  const dock = $("#ob-dock");
+  if (ph.waiting){   // 等待小步：浮卡居中置顶
+    dock.style.left = "50%"; dock.style.top = "18px";
+    dock.style.transform = "translateX(-50%)"; dock.style.right = "auto"; dock.style.bottom = "auto";
+    return;
+  }
+  const el = ph.anchor && $(ph.anchor);
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  const dw = dock.offsetWidth || 370, dh = dock.offsetHeight || 180;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left;
+  if (r.left < 300 && r.right + dw + 24 < vw) left = r.right + 20;        // 侧栏导航：浮卡放右侧
+  else left = Math.min(Math.max(12, r.left), Math.max(12, vw - dw - 12)); // 其余：跟 Anchor 左缘
+  let top = r.bottom + 16;
+  if (top + dh > vh - 12) top = r.top - dh - 16;                          // 下方放不下翻上方
+  if (top < 12) top = Math.max(12, Math.min(vh - dh - 12, r.bottom + 16));
+  dock.style.transform = "none";
+  dock.style.left = Math.round(left) + "px";
+  dock.style.top = Math.round(top) + "px";
+}
+
+function obTaskCleanup(){
+  if (!OB_TASK) return;
+  OB_TASK = null;
+  obClearSpot();
+  $("#ob-blocker").style.display = "none";
+  $("#ob-dock").style.display = "none";
+  window.removeEventListener("resize", obDockPlace);
+  window.removeEventListener("scroll", obDockPlace, true);
+}
+
+function obTaskFinish(auto){
+  obTaskCleanup();
+  if (auto) toast("这一步体验完成", "ok");
+  showOnboardStep(OB_IDX + 1);
+}
+
+/* 小步前进：还有小步则进入下一个小步，否则结束本步（auto=由操作侦测自动完成） */
+function obPhaseAdvance(auto){
+  if (!OB_TASK) return;
+  const phases = OB_TASKS[OB_TASK.key];
+  if (OB_TASK.phase < phases.phases.length - 1){
+    OB_TASK.phase++;
+    runObPhase();
+  } else {
+    obTaskFinish(auto);
+  }
+}
+
+/* 事件侦测：各功能点埋的 obNotify 钩子汇聚于此（引导未在任务模式时全部静默） */
+function obNotify(type, data){
+  if (!OB_TASK) return;
+  const phases = OB_TASKS[OB_TASK.key];
+  if (!phases) return;
+  const ph = phases.phases[OB_TASK.phase];
+  if (!ph || !ph.done || !ph.done.length) return;
+  const sig = data === undefined ? type : type + ":" + data;
+  if (!ph.done.includes(sig)) return;
+  if (ph.stay){ obAckPhase(ph); return; }   // 实践型小步：只确认生效、留在原地让用户自由体验
+  obPhaseAdvance(true);
+}
+/* 实践型小步的确认：换文案告诉用户「已生效、随便玩」，不跳步——玩够了自己点「下一步」 */
+function obAckPhase(ph){
+  if (ph.__acked) return;
+  ph.__acked = true;
+  $("#ob-dock-text").innerHTML = "<b>做得好，已经生效</b>" + (ph.ack || "可以继续体验，好了点「下一步」。");
+  toast("已生效，可继续体验或点「下一步」", "ok");
+}
+
+function obDockExtra(){
+  if (!OB_TASK) return;
+  const ph = OB_TASKS[OB_TASK.key].phases[OB_TASK.phase];
+  if (!ph || !ph.extra) return;
+  const inp = ph.extra.target && $(ph.extra.target);
+  if (inp){ inp.value = ph.extra.prefill; if (inp.id === "chat-input") autoResizeInput(); inp.focus(); }
+}
+/* 任务模式的「上一步」：小步内回退上一小步（重留白）；已是本步第一步则回退上一步 */
+function obBack(){
+  if (!OB_TASK) return;
+  const phases = OB_TASKS[OB_TASK.key].phases;
+  if (OB_TASK.phase > 0){ OB_TASK.phase--; runObPhase(); return; }
+  if (OB_IDX > 0) showOnboardStep(OB_IDX - 1);
+}
+
+/* 弹窗步内容（welcome/account/done）；其余步骤为任务模式，剧本见 OB_TASKS */
+const OB_BODY = {
+  welcome: () => `
+    <h3>欢迎使用购物 AI 助手</h3>
+    <div class="help" style="line-height:1.9;">
+      一句话说出购物需求，自动完成 <b>选品 → 打分 → TOP3 推荐 → 下单模拟 → 物流跟踪</b> 全流程。<br>
+      接下来我会<b>手把手带你</b>完成初始设置并亲身体验核心功能；每一步都可以「下一步」「跳过本节」或「跳过全部引导」。
+    </div>
+    <div class="ob-feats">
+      <div class="ob-feat"><span class="material-symbols-outlined">bolt</span><b>自然语言下单</b><span>说「买夏天连衣裙 预算200以内」即可启动全流程，模糊需求会先追问再搜。</span></div>
+      <div class="ob-feat"><span class="material-symbols-outlined">travel_explore</span><b>真实数据抓取</b><span>按需限量抓取京东/淘宝搜索结果，每条商品标注 [真实数据] / [演示数据]。</span></div>
+      <div class="ob-feat"><span class="material-symbols-outlined">verified_user</span><b>本机与支付安全</b><span>数据仅存本机，绝不代你支付；下单前必有二次确认与支付风险提醒。</span></div>
+    </div>`,
+  account: () => `
+    <h3>先认识一下：设置你的账户</h3>
+    <div class="help" style="margin-bottom:4px;">已用注册账户名帮你预填昵称，可随意修改；昵称与头像会用在消息、推荐和档案里。</div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+      <div class="uc-avatar classic" id="ob-avatar">${escapeHtml(((_uc&&_uc.nickname)||saUsername()||"用").charAt(0).toUpperCase())}</div>
+      <div style="flex:1;min-width:220px;">
+        <input type="text" class="input" id="ob-nickname" maxlength="20" placeholder="怎么称呼你？（可跳过）">
+        <div class="help" style="margin-top:8px;">性别（用于挑选系统默认头像）：</div>
+        <div class="seg" id="ob-gender" style="margin-top:4px;"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <label class="btn sm ghost" style="cursor:pointer;margin:0;" title="上传自定义头像（可选，长期保存在本机）">
+            <span class="material-symbols-outlined">upload</span> 上传头像（可选）
+            <input type="file" id="ob-avatar-input" accept="image/*" style="display:none" onchange="obPickAvatar(event)">
+          </label>
+          <span class="help" id="ob-avatar-hint">不上传则按性别使用系统默认头像</span>
+        </div>
+      </div>
+    </div>`,
+  done: () => `
+    <h3>一切就绪</h3>
+    <div class="help" style="line-height:2.0;">
+      基础设置与核心体验到此完成。之后随时可以：<br>
+      · 到「用户中心」补填档案、调整字号与人群交互风格<br>
+      · 到「配置库」补配 AI Key 与京东/淘宝登录态<br>
+      · 直接说一句 <b>「买一条夏天的连衣裙，预算200以内」</b>，体验完整购物流程
+    </div>`,
+};
+
 function obPickGender(v){
   _obGender = v;
   $$("#ob-gender button").forEach(b => b.classList.toggle("active", b.textContent === (UC_GENDERS.find(g => g[0]===v)||["",""])[1]));
@@ -3192,8 +3963,8 @@ function obPickGender(v){
     const av = $("#ob-avatar");
     if(av){
       const src = v === "male" ? "/resource/avatar_male.png" : v === "female" ? "/resource/avatar_female.png" : "";
-      av.innerHTML = src ? '<img src="' + src + '" alt="">' : escapeHtml(((_uc&&_uc.nickname)||"用").charAt(0).toUpperCase());
-      if(!src) av.className = "uc-avatar " + ((_uc && _uc.avatar_color) || "classic");
+      av.innerHTML = src ? '<img src="' + src + '" alt="">' : escapeHtml(((_uc&&_uc.nickname)||saUsername()||"用").charAt(0).toUpperCase());
+      if(!src) av.className = "uc-avatar classic";
     }
   }
 }
@@ -3217,8 +3988,25 @@ function markOnboarded(){
   try{ localStorage.setItem("sa_onboarded","1"); }catch(e){}
   try{ api("/api/usercenter","POST",{onboarded:true}); }catch(e){}   // 按账户持久化，重登/换机不再重复引导
 }
-async function onboardNext(){
-  if(_obStep === 2){
+
+/* 暂停 / 续引 / 前进：任何出口都先拆掉任务模式的浮卡与轻遮罩 */
+function obPause(silent){
+  obTaskCleanup();
+  $("#onboard-mask").style.display = "none";
+  const [si] = obLoc(OB_IDX);
+  $("#ob-resume-text").textContent = `继续新手引导 · 第 ${si+1} 节 ${OB_SECTIONS[si].name}`;
+  $("#ob-resume").style.display = "inline-flex";
+  if (!silent) toast("引导已暂停，点右下角浮窗继续","ok");
+}
+function obResume(){
+  $("#ob-resume").style.display = "none";
+  showOnboardStep(OB_IDX);
+}
+function obPrev(){ if (OB_IDX > 0) showOnboardStep(OB_IDX - 1); }
+async function obNext(){
+  if (OB_TASK){ obPhaseAdvance(false); return; }   // 任务模式：下一步 = 下一个小步 / 下一节
+  const key = obCurKey();
+  if (key === "account"){
     const nick = $("#ob-nickname") ? $("#ob-nickname").value : "";
     const payload = { nickname: nick,
       gender: _obGender || "" };
@@ -3226,21 +4014,27 @@ async function onboardNext(){
     const r = await api("/api/usercenter","POST", payload);
     if(r && r.ok){
       _uc = r.user;
-      renderUcAvatar(); refreshChatAvatars();
+      renderUcAvatar(); refreshChatAvatars(); refreshAcctChip();
       if($("#uc-nickname")) $("#uc-nickname").value = _uc.nickname || "";
     }
   }
-  if(_obStep >= 4){
+  if (key === "done"){
     markOnboarded();
+    obTaskCleanup();
     $("#onboard-mask").style.display = "none";
     loadLoginStates();   // 引导期间若发起过扫码，把最新状态同步回配置库面板
     toast("开始体验吧","ok");
     return;
   }
-  showOnboardStep(_obStep + 1);
+  showOnboardStep(OB_IDX + 1);
 }
-function onboardSkip(){
+function obSkipSection(){
+  const [si] = obLoc(OB_IDX);
+  showOnboardStep(obFlatStart(si + 1));
+}
+function obSkipAll(){
   markOnboarded();
+  obTaskCleanup();
   $("#onboard-mask").style.display = "none";
   loadLoginStates();
 }

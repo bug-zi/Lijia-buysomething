@@ -19,6 +19,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 
 LIST_FILE = os.path.join(BASE_DIR, "shopping_list.json")
 
 
+def _to_trash(ttype: str, title: str, summary: str, data: Dict[str, Any]) -> None:
+    """删除数据归档进回收站；失败静默不影响主流程"""
+    try:
+        from trash_bin import trash_bin
+        trash_bin.add(ttype, title, summary, data)
+    except Exception:
+        pass
+
+
 @dataclass
 class ListItem:
     """清单单条记录"""
@@ -90,6 +99,7 @@ class ShoppingList:
         if 1 <= index <= len(self.items):
             it = self.items.pop(index - 1)
             self._save()
+            _to_trash("list_item", it.content, f"需求原文：{it.content}", {"item": it.to_dict()})
             return f"已从清单移除第{index}项：{it.content}"
         return f"清单没有第{index}项（当前共{len(self.items)}项）"
 
@@ -105,7 +115,12 @@ class ShoppingList:
 
     def clear_done(self) -> str:
         self._ensure()
-        n = sum(1 for it in self.items if it.done)
+        gone = [it for it in self.items if it.done]
+        n = len(gone)
+        if n:
+            _to_trash("list_clear_done", f"购物清单已完成条目（{n} 项）",
+                      "、".join(it.content for it in gone[:5]) + ("…" if n > 5 else ""),
+                      {"items": [it.to_dict() for it in gone]})
         self.items = [it for it in self.items if not it.done]
         self._save()
         return f"已清空{n}项已完成条目。"
@@ -113,9 +128,24 @@ class ShoppingList:
     def clear(self) -> str:
         self._ensure()
         n = len(self.items)
+        if n:
+            _to_trash("list_clear", f"购物清单（{n} 项）",
+                      "、".join(it.content for it in self.items[:5]) + ("…" if n > 5 else ""),
+                      {"items": [it.to_dict() for it in self.items]})
         self.items.clear()
         self._save()
         return f"已清空购物清单（共{n}项）。"
+
+    def add_item(self, d: Dict[str, Any]) -> str:
+        """整条还原一个清单条目（回收站还原用），保留原 id/时间/完成态"""
+        self._ensure()
+        d = dict(d or {})
+        d.setdefault("id", str(uuid.uuid4())[:8])
+        d.setdefault("created_at", time.strftime("%Y-%m-%d %H:%M:%S"))
+        known = {"id", "content", "created_at", "done"}
+        self.items.append(ListItem(**{k: v for k, v in d.items() if k in known}))
+        self._save()
+        return f"已还原「{d.get('content')}」到购物清单"
 
     def pending_count(self) -> int:
         self._ensure()

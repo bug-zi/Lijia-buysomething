@@ -22,6 +22,10 @@ API:
     POST /api/login            body: {"action":"check|login|clear","platform":"京东|淘宝/天猫"}
     GET  /api/usercenter       用户中心（账户信息 + 界面/行为偏好）
     POST /api/usercenter       body: {"nickname?":"...","avatar_color?":"...","gender?":"male|female","avatar?":"/resource/... 或空串清除","avatar_data?":"data:image/... 上传头像"}
+    GET  /api/messages         消息站（操作记录列表 + 未读数）
+    POST /api/messages         body: {"action":"read_all|clear"}
+    GET  /api/trash            回收站列表（3 天过期倒计时）
+    POST /api/trash            body: {"action":"restore|purge|clear","id?":"..."}
     GET  /                    托管 index.html
 """
 
@@ -31,6 +35,7 @@ import json
 import base64
 import re
 import time
+import socket
 import threading
 import webbrowser
 from typing import Dict, Optional, Tuple
@@ -54,6 +59,8 @@ import session_store  # noqa: E402  会话持久化（chat_sessions.json，路�
 import user_center  # noqa: E402  用户中心：账户信息与偏好
 from shopping_list import shopping_list  # noqa: E402  购物清单单例（购买前需求池；内部按上下文切换文件）
 import account_manager  # noqa: E402  本地多账户：注册/登录/token 与数据目录上下文
+from message_center import message_center  # noqa: E402  消息站：操作记录中心
+from trash_bin import trash_bin, sweep_all, EXPIRE_DAYS  # noqa: E402  回收站：删除数据归档（3 天过期）
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
@@ -67,6 +74,7 @@ SESSIONS: Dict[str, ChatSession] = {}    # 内存中的会话实例（键 "用�
 _SESSION_LOCKS: Dict[str, threading.Lock] = {}  # 每会话锁：串行化同一会话 ChatSession 的长耗时操作（互不影响其他会话）
 _BROWSER_LOCK = threading.Lock()         # 全局浏览器锁：真实抓取共享同一浏览器 profile，必须全局串行
 _CANCEL_FLAGS: Dict[str, bool] = {}      # 取消发送登记：request_id → True（被原请求消费即删）
+_CANCEL_EVENTS: Dict[str, threading.Event] = {}  # 取消事件：搜索链路协作式中止的检查信号源
 _CANCEL_LOCK = threading.Lock()
 _SHARED: Dict[str, ChatSession] = {}     # 每账户的共享管理器宿主（键=用户名，惰性创建）
 
@@ -145,6 +153,19 @@ def _consume_cancel(req_id: str) -> bool:
     """取走在途聊天请求的取消标记（取后即清）"""
     with _CANCEL_LOCK:
         return bool(_CANCEL_FLAGS.pop(req_id, False))
+
+
+def _register_cancel_event(req_id: str) -> threading.Event:
+    """登记在途请求的取消事件（搜索链路各检查点轮询它实现协作式中止）。
+    撤回若先于注册到达（竞态：取消请求比聊天请求先被处理），登记即置位。"""
+    with _CANCEL_LOCK:
+        ev = _CANCEL_EVENTS.get(req_id)
+        if ev is None:
+            ev = threading.Event()
+            _CANCEL_EVENTS[req_id] = ev
+        if _CANCEL_FLAGS.get(req_id):
+            ev.set()
+        return ev
 
 
 def json_response(handler, status: int, payload: dict):
@@ -247,6 +268,15 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "/api/usercenter":
             json_response(self, 200, {"ok": True, "user": user_center.load()})
             return
+        if path == "/api/messages":
+            json_response(self, 200, {"ok": True, "messages": message_center.to_list(),
+                                      "unread": message_center.unread_count(),
+                                      "count": message_center.count()})
+            return
+        if path == "/api/trash":
+            json_response(self, 200, {"ok": True, "items": trash_bin.list_items(),
+                                      "expire_days": EXPIRE_DAYS})
+            return
         if path == "/api/cart":
             self._api_cart_get()
             return
@@ -293,6 +323,14 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         account_manager.set_current(user["username"])
 
+        if path == "/api/auth/delete_account":
+            r = account_manager.ACCOUNTS.delete_account(user["username"], (body or {}).get("password", ""))
+            if r.get("ok"):
+                json_response(self, 200, {"ok": True})
+            else:
+                json_response(self, 400, r)
+            return
+
         if path == "/api/chat":
             self._api_chat(body)
             return
@@ -327,6 +365,12 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/usercenter":
             self._api_usercenter_post(body)
+            return
+        if path == "/api/messages":
+            self._api_messages_post(body)
+            return
+        if path == "/api/trash":
+            self._api_trash_post(body)
             return
         if path == "/api/cart":
             self._api_cart_post(body)
@@ -380,6 +424,8 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                     "cart_count": snap.get("cart_count", 0),
                     "list_pending": shopping_list.pending_count(),
                     "data_source_blocked": snap.get("data_source_blocked", False),
+                    "messages_unread": message_center.unread_count(),
+                    "trash_count": trash_bin.count(),
                 })
             finally:
                 account_manager.set_current(None)
@@ -413,6 +459,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         req_sid = str(body.get("session_id") or "").strip()
         req_id = str(body.get("request_id") or "").strip()   # 前端生成；用于「取消发送」登记
+        cancel_ev = _register_cancel_event(req_id) if req_id else None
         with SESSION_LOCK:
             sid, cs = _chat(req_sid)
             # 自动标题：会话首条消息取用户输入前 20 字（仅当还是默认标题）
@@ -426,7 +473,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             prev_state = cs.export_state()   # 取消回滚基线（聊天前的会话态快照）
             cancelled = False
             with _BROWSER_LOCK:
-                reply = cs.chat(msg)
+                reply = cs.chat(msg, cancel_check=cancel_ev.is_set if cancel_ev is not None else None)
                 # 澄清式问答的选项按钮（无则空数组，前端不渲染）
                 chips = cs.pop_chips()
                 # 澄清表单结构（维度追问表单化；无则 None，前端不渲染）
@@ -450,6 +497,8 @@ class ShoppingHandler(BaseHTTPRequestHandler):
                         "rank": cs._pending_rank,
                     }
                 cancelled = bool(req_id) and _consume_cancel(req_id)
+                if req_id:
+                    _CANCEL_EVENTS.pop(req_id, None)
             if cancelled:
                 # 用户已取消：会话态整体回滚、消息不入对话历史（本轮响应前端也不会渲染）。
                 # 浏览器抓取本身无法凭空打断，本次动作自然结束后结果即被丢弃。
@@ -521,6 +570,15 @@ class ShoppingHandler(BaseHTTPRequestHandler):
     def _api_session_delete(self, sid: str):
         user = account_manager.current() or ""
         with SESSION_LOCK:
+            meta = session_store.get_session(sid, with_state=True)
+            if meta is None:
+                json_response(self, 404, {"ok": False, "error": "会话不存在"})
+                return
+            # 先归档进回收站（3 天内可还原），再执行删除
+            n_msg = len(meta.get("messages") or [])
+            trash_bin.add("session", f"会话「{meta.get('title') or '未命名'}」",
+                          f"{n_msg} 条消息 · 创建于 {meta.get('created_at', '')}",
+                          {"session": meta})
             if not session_store.delete_session(sid):
                 json_response(self, 404, {"ok": False, "error": "会话不存在"})
                 return
@@ -865,6 +923,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         req_sid = str(body.get("session_id") or "").strip()
         req_id = str(body.get("request_id") or "").strip()
+        cancel_ev = _register_cancel_event(req_id) if req_id else None
         with SESSION_LOCK:
             sid, cs = _chat(req_sid)
         with _lock_for(sid):
@@ -872,9 +931,13 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             cancelled = False
             with _BROWSER_LOCK:
                 user_text = text or "（图片消息）"
-                reply = cs.chat_with_images(clean_images, text)
+                reply = cs.chat_with_images(
+                    clean_images, text,
+                    cancel_check=cancel_ev.is_set if cancel_ev is not None else None)
                 snap = cs.snapshot()
                 cancelled = bool(req_id) and _consume_cancel(req_id)
+                if req_id:
+                    _CANCEL_EVENTS.pop(req_id, None)
             if cancelled:
                 cs.restore_state(prev_state)
                 cs._last_chips = []
@@ -898,6 +961,9 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             return
         with _CANCEL_LOCK:
             _CANCEL_FLAGS[rid] = True
+            ev = _CANCEL_EVENTS.get(rid)
+            if ev is not None:
+                ev.set()
         json_response(self, 200, {"ok": True})
 
     # ---------- 用户中心（含头像上传：data URI 落盘 resource/，路径入库长期有效） ----------
@@ -934,6 +1000,105 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             # ?v= 时间戳做缓存穿透：覆盖上传后浏览器立即取新图
             body["avatar"] = f"/resource/{fname}?v={int(time.time())}"
         json_response(self, 200, {"ok": True, "user": user_center.save(body)})
+
+    # ---------- 消息站（操作记录） ----------
+    def _api_messages_post(self, body: dict):
+        action = str(body.get("action") or "").strip().lower()
+        if action == "read_all":
+            n = message_center.mark_all_read()
+            json_response(self, 200, {"ok": True, "marked": n, "unread": message_center.unread_count()})
+            return
+        if action == "clear":
+            n = message_center.clear()
+            json_response(self, 200, {"ok": True, "cleared": n, "unread": 0, "count": 0})
+            return
+        json_response(self, 400, {"ok": False, "error": "未知 action，仅支持 read_all/clear"})
+
+    # ---------- 回收站（还原由 web 层分发回各业务模块，保证内存实例与磁盘一致） ----------
+    def _api_trash_post(self, body: dict):
+        action = str(body.get("action") or "").strip().lower()
+        tid = str(body.get("id") or "").strip()
+
+        if action == "clear":
+            n = trash_bin.clear()
+            json_response(self, 200, {"ok": True, "cleared": n, "items": trash_bin.list_items(),
+                                      "expire_days": EXPIRE_DAYS})
+            return
+        if action not in ("restore", "purge"):
+            json_response(self, 400, {"ok": False, "error": "未知 action，仅支持 restore/purge/clear"})
+            return
+        item = trash_bin.find(tid)
+        if item is None:
+            json_response(self, 404, {"ok": False, "error": "回收站中找不到该条目"})
+            return
+        ttype = item.get("type")
+        data = item.get("data") or {}
+
+        if action == "purge":
+            trash_bin.purge(tid)
+            json_response(self, 200, {"ok": True, "action": "purge", "items": trash_bin.list_items(),
+                                      "expire_days": EXPIRE_DAYS})
+            return
+
+        # ---------- restore：按类型分发 ----------
+        msg = ""
+        try:
+            if ttype == "session":
+                s = session_store.restore_session(data.get("session") or {})
+                if s is None:
+                    json_response(self, 400, {"ok": False, "error": "归档数据不完整，无法还原会话"})
+                    return
+                msg = f"会话「{s['title']}」已还原"
+            elif ttype in ("cart_item", "cart_clear"):
+                objs = [data["item"]] if ttype == "cart_item" else (data.get("items") or [])
+                if not objs:
+                    json_response(self, 400, {"ok": False, "error": "归档数据不完整，无法还原"})
+                    return
+                with SESSION_LOCK:
+                    _sid, cs = _chat()
+                    for d in objs:
+                        cs.cart.add_item(d)
+                msg = f"已还原 {len(objs)} 项到虚拟购物车"
+            elif ttype in ("list_item", "list_clear_done", "list_clear"):
+                objs = [data["item"]] if ttype == "list_item" else (data.get("items") or [])
+                if not objs:
+                    json_response(self, 400, {"ok": False, "error": "归档数据不完整，无法还原"})
+                    return
+                for d in objs:
+                    shopping_list.add_item(d)
+                msg = f"已还原 {len(objs)} 项到购物清单"
+            elif ttype == "profile":
+                prof = data.get("profile") or {}
+                if not prof:
+                    json_response(self, 400, {"ok": False, "error": "归档数据不完整，无法还原"})
+                    return
+                with SESSION_LOCK:
+                    _sid, cs = _chat()
+                    n = cs.profile.restore_merge(prof)
+                msg = f"已还原档案 {n} 项（现有非空内容未被覆盖）"
+            elif ttype == "apikey":
+                cfg = data.get("config") or {}
+                r = ai_client.restore_key_config(str(cfg.get("api_key") or ""),
+                                                 str(cfg.get("base_url") or ""),
+                                                 str(cfg.get("model") or ""),
+                                                 str(cfg.get("provider") or ""))
+                if not r.get("ok"):
+                    json_response(self, 400, {"ok": False, "error": r.get("message", "还原失败")})
+                    return
+                msg = "API Key 配置已还原"
+            else:
+                json_response(self, 400, {"ok": False, "error": f"该类型（{ttype}）不支持还原"})
+                return
+        except Exception as e:
+            json_response(self, 500, {"ok": False, "error": f"还原失败：{e}"})
+            return
+        trash_bin.remove(tid)
+        try:
+            message_center.add("trash", f"「{item.get('title')}」已从回收站还原", msg)
+        except Exception:
+            pass
+        json_response(self, 200, {"ok": True, "action": "restore", "message": msg,
+                                  "items": trash_bin.list_items(), "expire_days": EXPIRE_DAYS})
 
     # ---------- 静态资源 ----------
     _RESOURCE_TYPES = {
@@ -976,7 +1141,35 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         html_response(self, 200, data)
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    s = socket.socket()
+    try:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def run(port: int = DEFAULT_PORT, open_browser: bool = True):
+    # 端口已有存活服务时拒绝启动：Windows 下 SO_REUSEADDR 允许双绑定，双进程
+    # 会对同一份数据 JSON 各自读-改-写、互相覆盖（偏好/会话丢更新的根源）
+    if _port_in_use("127.0.0.1", port):
+        print("=" * 60)
+        print(f"  启动中止：端口 {port} 已有服务在运行（多半是旧进程未退出）。")
+        print("  双进程并存会互相覆盖数据，请先关闭旧的运行窗口；")
+        print(f"  或执行 netstat -ano | findstr :{port} 查得 PID，")
+        print(f"  再 taskkill /F /PID <PID> 结束旧进程后重新启动。")
+        print("=" * 60)
+        return
+    # 启动巡检：所有账户回收站中超 3 天未处理的数据自动彻底删除（记入消息站）
+    try:
+        swept = sweep_all()
+        if swept:
+            print(f"[trash] 启动清理：回收站 {swept} 项过期数据已彻底删除")
+    except Exception:
+        pass
     addr = ("127.0.0.1", port)
     httpd = ThreadingHTTPServer(addr, ShoppingHandler)
     url = f"http://127.0.0.1:{port}/"

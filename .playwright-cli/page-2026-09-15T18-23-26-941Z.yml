@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img "logo" [ref=e6]
+        - generic [ref=e7]: 购物AI助手
+      - navigation [ref=e8]:
+        - generic [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: chat_bubble
+          - generic [ref=e12]: 对话购物
+        - generic [ref=e13] [cursor=pointer]:
+          - generic [ref=e14]: inventory_2
+          - generic [ref=e16]: 订单 & 物流
+        - generic [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: checklist
+          - generic [ref=e20]: 购物清单
+        - generic [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]: shopping_cart
+          - generic [ref=e24]: 虚拟购物车
+        - generic [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: emoji_events
+          - generic [ref=e28]: TOP3 推荐
+        - generic [ref=e29] [cursor=pointer]:
+          - generic [ref=e30]: person
+          - generic [ref=e32]: 用户中心
+        - generic [ref=e33] [cursor=pointer]:
+          - generic [ref=e34]: settings
+          - generic [ref=e36]: 配置库
+      - generic [ref=e38]:
+        - generic [ref=e39]: lightbulb
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - text: 说
+            - code [ref=e501]: 买夏天连衣裙 200以内
+            - text: ，一句话启动选品到下单全流程
+          - generic [ref=e44]:
+            - generic [ref=e45] [cursor=pointer]
+            - generic [ref=e46] [cursor=pointer]
+            - generic [ref=e47] [cursor=pointer]
+            - generic [ref=e48] [cursor=pointer]
+            - generic [ref=e49] [cursor=pointer]
+            - generic [ref=e50] [cursor=pointer]
+            - generic [ref=e51] [cursor=pointer]
+            - generic [ref=e52] [cursor=pointer]
+            - generic [ref=e53] [cursor=pointer]
+            - generic [ref=e54] [cursor=pointer]
+    - main [ref=e72]:
+      - generic [ref=e73]:
+        - heading "订单 & 物流 · 实时跟踪售后进度" [level=2] [ref=e502]
+        - generic [ref=e75]:
+          - generic [ref=e76]: 后端已连接
+          - generic [ref=e78]: 必填缺9项
+          - generic [ref=e80]: v1.0 · 零第三方依赖
+        - generic [ref=e82]:
+          - button "dark_mode" [ref=e85] [cursor=pointer]
+          - button "pw_dialog_test P" [ref=e133] [cursor=pointer]:
+            - generic [ref=e89]: pw_dialog_test
+            - generic [ref=e90]: P
+      - generic [ref=e505]:
+        - generic [ref=e506]:
+          - generic [ref=e507]:
+            - generic [ref=e508]: inventory_2
+            - text: 订单列表
+          - button "refresh 刷新" [ref=e510] [cursor=pointer]:
+            - generic [ref=e511]: refresh
+            - text: 刷新
+        - generic [ref=e513]:
+          - generic [ref=e514]: inventory_2
+          - text: 暂无订单，去「对话购物」下单吧！
+  - generic [ref=e125]: 档案已保存

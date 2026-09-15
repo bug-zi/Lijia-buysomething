@@ -1,0 +1,102 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - img "logo" [ref=e6]
+      - generic [ref=e7]: 购物AI助手
+    - navigation [ref=e8]:
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: chat_bubble
+        - generic [ref=e12]: 对话购物
+      - generic [ref=e13] [cursor=pointer]:
+        - generic [ref=e14]: inventory_2
+        - generic [ref=e16]: 订单 & 物流
+      - generic [ref=e17] [cursor=pointer]:
+        - generic [ref=e18]: checklist
+        - generic [ref=e20]: 购物清单
+      - generic [ref=e21] [cursor=pointer]:
+        - generic [ref=e22]: shopping_cart
+        - generic [ref=e24]: 虚拟购物车
+      - generic [ref=e25] [cursor=pointer]:
+        - generic [ref=e26]: emoji_events
+        - generic [ref=e28]: TOP3 推荐
+      - generic [ref=e29] [cursor=pointer]:
+        - generic [ref=e30]: person
+        - generic [ref=e32]: 用户中心
+      - generic [ref=e33] [cursor=pointer]:
+        - generic [ref=e34]: settings
+        - generic [ref=e36]: 配置库
+    - generic [ref=e38]:
+      - generic [ref=e39]: lightbulb
+      - generic [ref=e41]:
+        - generic [ref=e42]: 想买先记进「购物清单」，想清楚随时回来开聊
+        - generic [ref=e44]:
+          - generic [ref=e45] [cursor=pointer]
+          - generic [ref=e46] [cursor=pointer]
+          - generic [ref=e47] [cursor=pointer]
+          - generic [ref=e48] [cursor=pointer]
+          - generic [ref=e49] [cursor=pointer]
+          - generic [ref=e50] [cursor=pointer]
+          - generic [ref=e51] [cursor=pointer]
+          - generic [ref=e52] [cursor=pointer]
+          - generic [ref=e53] [cursor=pointer]
+          - generic [ref=e54] [cursor=pointer]
+  - main [ref=e72]:
+    - generic [ref=e73]:
+      - heading "对话购物 · 自然语言驱动全流程" [level=2] [ref=e74]
+      - generic [ref=e75]:
+        - generic [ref=e76]: 后端已连接
+        - generic [ref=e78]: 档案为空
+        - generic [ref=e80]: v1.0 · 零第三方依赖
+      - generic [ref=e82]:
+        - button "format_list_bulleted" [ref=e83] [cursor=pointer]
+        - button "dark_mode" [ref=e85] [cursor=pointer]
+        - button "pw_dialog_test P" [ref=e133] [cursor=pointer]:
+          - generic [ref=e89]: pw_dialog_test
+          - generic [ref=e90]: P
+    - generic [ref=e92]:
+      - generic [ref=e93]:
+        - generic [ref=e135]:
+          - img "AI" [ref=e137]
+          - generic [ref=e138]:
+            - paragraph [ref=e139]:
+              - text: 你好，我是你的
+              - strong [ref=e140]: 全自动个人购物AI助手
+              - text: 。用一句话说出想买什么，我来完成 需求澄清 → 跨平台选品 → 评价分析 →
+              - strong [ref=e141]: TOP3推荐
+              - text: → 下单模拟 → 物流跟踪。
+            - paragraph [ref=e142]:
+              - strong [ref=e143]: 可以这样开始
+              - text: ：
+            - list [ref=e144]:
+              - listitem [ref=e145]: 直接提需求：「买一条夏天通勤连衣裙，预算200以内」
+              - listitem [ref=e146]: 需求还模糊也不怕：我会先追问几个关键问题，再帮你搜
+              - listitem [ref=e147]: 看中后随时调整：「买第2款」「换更修身的」「给我前5名」
+              - listitem [ref=e148]: 上传商品图片：找同款、多图对比
+              - listitem [ref=e149]: 查单查售后：「我的订单」「物流」「售后 ODxxxx 尺码不合适」
+            - paragraph
+            - paragraph [ref=e150]: 还没想好买什么？先记进「购物清单」，想清楚了随时回来开聊。
+        - generic [ref=e111]:
+          - button "录入档案" [ref=e112] [cursor=pointer]
+          - button "查看档案" [ref=e113] [cursor=pointer]
+          - button "我的订单" [ref=e114] [cursor=pointer]
+          - button "最新物流" [ref=e115] [cursor=pointer]
+          - button "我的购物车" [ref=e116] [cursor=pointer]
+          - button "我的清单" [ref=e117] [cursor=pointer]
+          - button "浏览器抓取真实数据" [ref=e118] [cursor=pointer]
+        - generic [ref=e119]:
+          - generic "上传商品图片（找同款/对比）" [ref=e120] [cursor=pointer]: image
+          - textbox "输入购物需求，或上传图片找同款/对比（Shift+Enter 换行，Enter 发送）" [ref=e122]
+          - button "send" [ref=e123] [cursor=pointer]
+      - complementary:
+        - generic:
+          - generic: 会话列表
+          - generic:
+            - button "download"
+            - button "＋ 新建会话"
+        - generic:
+          - generic:
+            - generic "默认会话"
+            - generic:
+              - generic: 刚刚
+              - generic: 0 条
+              - button "删除"

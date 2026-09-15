@@ -3,7 +3,7 @@
 用户中心 · 账户信息与界面/行为偏好（本地 JSON 存储）
 
 - 只存展示信息与偏好（昵称/头像色/字号/字体/浏览器弹出方式），绝不含任何账号凭据；
-- browser_popup 偏好供 web_scraper 读取：background = 浏览器最小化启动（不抢焦点，
+- browser_popup 偏好供 web_scraper 读取：默认 background = 浏览器最小化启动（不抢焦点，
   收进任务栏；登录/扫码等需人工交互的环节由调用方强制弹出窗口）；
 - 本模块只用标准库，顶层不导入任何项目模块（无循环依赖）；所有值白名单校验。
 """
@@ -39,7 +39,7 @@ DEFAULTS = {
     "avatar": "",
     "onboarded": False,
     "prefs": {"font_size": "medium", "font_family": "default",
-              "browser_popup": "popup", "persona": "default"},
+              "browser_popup": "background", "persona": "default"},
 }
 
 # RLock：save() 持锁状态下要再调 load()（其内部也会拿锁）
@@ -56,11 +56,19 @@ def _load_raw() -> dict:
 
 
 def _save_raw(data: dict) -> None:
+    # 原子写（临时文件 + os.replace）：避免进程被杀/并发写入留下半截 JSON，
+    # 半截文件会被 _load_raw 静默当空数据读入并回写全默认（偏好整档丢失）
+    path = _file()
+    tmp = path + ".tmp"
     try:
-        with open(_file(), "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
     except OSError:
-        pass
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _norm_prefs(p) -> dict:
@@ -69,7 +77,7 @@ def _norm_prefs(p) -> dict:
     return {
         "font_size": p.get("font_size") if p.get("font_size") in FONT_SIZES else "medium",
         "font_family": p.get("font_family") if p.get("font_family") in FONT_FAMILIES else "default",
-        "browser_popup": p.get("browser_popup") if p.get("browser_popup") in POPUP_MODES else "popup",
+        "browser_popup": p.get("browser_popup") if p.get("browser_popup") in POPUP_MODES else "background",
         "persona": p.get("persona") if p.get("persona") in PERSONAS else "default",
     }
 
@@ -98,8 +106,14 @@ def load() -> dict:
             "avatar": _safe_avatar(data.get("avatar")),
             "onboarded": bool(data.get("onboarded")),
             "prefs": _norm_prefs(data.get("prefs")),
+            "popup_migrated": data.get("popup_migrated") is True,
         }
-        if not str(data.get("user_id") or "").strip():
+        if not data.get("popup_migrated"):
+            # 一次性迁移（260916）：默认值改「后台最小化」后，存量「弹出显示」多为旧默认遗留而非主动选择，统一并入新默认；此后以用户手动选择为准
+            merged["prefs"]["browser_popup"] = "background"
+            merged["popup_migrated"] = True
+            _save_raw(merged)
+        elif not str(data.get("user_id") or "").strip():
             _save_raw(merged)
         return merged
 
@@ -147,7 +161,8 @@ if __name__ == "__main__":
     u = load()
     assert u["nickname"] == "" and u["avatar_color"] == "classic", u
     assert u["prefs"] == {"font_size": "medium", "font_family": "default",
-                          "browser_popup": "popup", "persona": "default"}, u
+                          "browser_popup": "background", "persona": "default"}, u
+    assert u["popup_migrated"] is True, u
     uid1 = u["user_id"]
     assert uid1.startswith("SA-") and len(uid1) == 11, uid1
 
@@ -156,9 +171,13 @@ if __name__ == "__main__":
     assert u2["nickname"] == "小明", u2                      # 昵称去空白
     assert u2["avatar_color"] == "classic", u2              # 非法头像色回落
     assert u2["prefs"]["font_size"] == "large", u2          # 合法偏好更新
-    assert u2["prefs"]["browser_popup"] == "popup", u2      # 非法枚举不采纳
+    assert u2["prefs"]["browser_popup"] == "background", u2  # 非法枚举不采纳
     assert u2["prefs"]["persona"] == "student", u2          # 合法人群更新
     assert u2["user_id"] == uid1, "uid 应保持稳定"
+
+    u7 = save({"prefs": {"browser_popup": "popup"}})        # 迁移标记后：用户主动选「弹出显示」被尊重
+    assert u7["prefs"]["browser_popup"] == "popup", u7
+    assert load()["prefs"]["browser_popup"] == "popup", "迁移不应复燃"
 
     u3 = save({"prefs": {"font_size": "small"}})            # 部分更新不丢其他键
     assert u3["prefs"]["font_size"] == "small", u3
@@ -181,5 +200,11 @@ if __name__ == "__main__":
     for bad in ("cookie", "token", "password"):
         assert bad not in raw, f"敏感字段泄漏：{bad}"
 
+    # 存量迁移：旧数据「弹出显示」（多为旧默认遗留）一次性并入「后台最小化」并打标记
+    with open(UC_FILE, "w", encoding="utf-8") as f:
+        json.dump({"user_id": "SA-00000001", "prefs": {"browser_popup": "popup"}}, f, ensure_ascii=False)
+    um = load()
+    assert um["prefs"]["browser_popup"] == "background" and um["popup_migrated"] is True, um
+
     os.remove(UC_FILE)
-    print("user_center 自测通过（默认值/白名单/部分更新/uid 稳定/无敏感字段）")
+    print("user_center 自测通过（默认值/白名单/部分更新/uid 稳定/存量迁移/无敏感字段）")

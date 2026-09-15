@@ -147,6 +147,30 @@ def delete_session(sid: str) -> bool:
         return True
 
 
+def restore_session(sess: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """从回收站还原整个会话（含消息与状态）；id 冲突时分配新 id。返回还原后的摘要。
+    空会话（无消息无状态）同样允许还原——只要还认得出是一个会话。"""
+    if not isinstance(sess, dict) or not (sess.get("id") or sess.get("title")):
+        return None
+    with _LOCK:
+        data = _read()
+        s = copy.deepcopy(sess)
+        sid = s.get("id") or _new_id()
+        if sid in data["sessions"]:
+            sid = _new_id()
+            s["id"] = sid
+        now = _now()
+        s["id"] = sid
+        s.setdefault("title", "恢复的会话")
+        s.setdefault("messages", [])
+        s.setdefault("state", {})
+        s.setdefault("created_at", now)
+        s["updated_at"] = s.get("updated_at") or now
+        data["sessions"][sid] = s
+        _write(data)
+        return _summary(s)
+
+
 def rename_session(sid: str, title: str) -> bool:
     with _LOCK:
         data = _read()

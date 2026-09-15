@@ -1,0 +1,339 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - img "logo" [ref=e6]
+        - generic [ref=e7]: 购物AI助手
+      - navigation [ref=e8]:
+        - generic [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: chat_bubble
+          - generic [ref=e12]: 对话购物
+        - generic [ref=e13] [cursor=pointer]:
+          - generic [ref=e14]: inventory_2
+          - generic [ref=e16]: 订单 & 物流
+        - generic [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]: checklist
+          - generic [ref=e20]: 购物清单
+        - generic [ref=e21] [cursor=pointer]:
+          - generic [ref=e22]: shopping_cart
+          - generic [ref=e24]: 虚拟购物车
+        - generic [ref=e25] [cursor=pointer]:
+          - generic [ref=e26]: emoji_events
+          - generic [ref=e28]: TOP3 推荐
+        - generic [ref=e29] [cursor=pointer]:
+          - generic [ref=e30]: person
+          - generic [ref=e32]: 用户中心
+        - generic [ref=e33] [cursor=pointer]:
+          - generic [ref=e34]: settings
+          - generic [ref=e36]: 配置库
+      - generic [ref=e38]:
+        - generic [ref=e39]: lightbulb
+        - generic [ref=e41]:
+          - generic [ref=e42]:
+            - text: 看中后说
+            - code [ref=e493]: 买第2款
+            - text: 即可下单，下单前必二次确认
+          - generic [ref=e44]:
+            - generic [ref=e45] [cursor=pointer]
+            - generic [ref=e46] [cursor=pointer]
+            - generic [ref=e47] [cursor=pointer]
+            - generic [ref=e48] [cursor=pointer]
+            - generic [ref=e49] [cursor=pointer]
+            - generic [ref=e50] [cursor=pointer]
+            - generic [ref=e51] [cursor=pointer]
+            - generic [ref=e52] [cursor=pointer]
+            - generic [ref=e53] [cursor=pointer]
+            - generic [ref=e54] [cursor=pointer]
+    - main [ref=e72]:
+      - generic [ref=e73]:
+        - heading "用户中心 · 账户、偏好与购物档案" [level=2] [ref=e210]
+        - generic [ref=e75]:
+          - generic [ref=e76]: 后端已连接
+          - generic [ref=e78]: 档案为空
+          - generic [ref=e80]: v1.0 · 零第三方依赖
+        - generic [ref=e82]:
+          - button "dark_mode" [ref=e85] [cursor=pointer]
+          - button "temp_ab_01 T" [ref=e130] [cursor=pointer]:
+            - generic [ref=e89]: temp_ab_01
+            - generic [ref=e90]: T
+      - generic [ref=e213]:
+        - generic [ref=e214]:
+          - generic [ref=e216]:
+            - generic [ref=e217]: badge
+            - text: 用户中心 · 账户信息
+            - button "查看说明" [ref=e219] [cursor=pointer]:
+              - generic [ref=e220]: info
+          - generic [ref=e221]:
+            - generic "点击上传头像（仅保存在本机）" [ref=e222] [cursor=pointer]: 用
+            - generic [ref=e224]:
+              - textbox "用户名（昵称，最多 20 字）" [ref=e225]
+              - generic [ref=e226]:
+                - text: ID：
+                - code [ref=e227]: SA-18085368
+                - text: （自动生成；账号注册/云同步未来开放）
+          - generic [ref=e228]:
+            - generic [ref=e229]: 性别：
+            - generic [ref=e230]:
+              - button "未填写" [ref=e231] [cursor=pointer]
+              - button "男生" [ref=e232] [cursor=pointer]
+              - button "女生" [ref=e233] [cursor=pointer]
+            - button "恢复默认头像" [ref=e234] [cursor=pointer]
+            - button "save 保存账户" [ref=e235] [cursor=pointer]:
+              - generic [ref=e236]: save
+              - text: 保存账户
+            - button "查看说明" [ref=e238] [cursor=pointer]:
+              - generic [ref=e239]: info
+        - generic [ref=e240]:
+          - generic [ref=e242]:
+            - generic [ref=e243]: tune
+            - text: 用户中心 · 界面与行为偏好
+            - button "查看说明" [ref=e245] [cursor=pointer]:
+              - generic [ref=e246]: info
+          - generic [ref=e247]:
+            - generic [ref=e248]: 主题色（皮肤）
+            - generic [ref=e249]:
+              - button "经典蓝" [ref=e250] [cursor=pointer]
+              - button "樱花粉" [ref=e251] [cursor=pointer]
+              - button "森野绿" [ref=e252] [cursor=pointer]
+              - button "暖阳橙" [ref=e253] [cursor=pointer]
+            - button "查看说明" [ref=e255] [cursor=pointer]:
+              - generic [ref=e256]: info
+          - generic [ref=e257]:
+            - generic [ref=e494]:
+              - generic [ref=e495]: 文字大小
+              - generic [ref=e496]:
+                - button "小" [ref=e497] [cursor=pointer]
+                - button "标准" [ref=e498] [cursor=pointer]
+                - button "大" [ref=e499] [cursor=pointer]
+                - button "特大" [ref=e500] [cursor=pointer]
+            - generic [ref=e501]:
+              - generic [ref=e502]: 界面字体
+              - generic [ref=e503]:
+                - button "默认黑体" [ref=e504] [cursor=pointer]
+                - button "宋体" [ref=e505] [cursor=pointer]
+                - button "楷体" [ref=e506] [cursor=pointer]
+            - generic [ref=e507]:
+              - generic [ref=e508]: AI 查询浏览器窗口
+              - generic [ref=e509]:
+                - button "后台最小化" [ref=e510] [cursor=pointer]
+                - button "弹出显示" [ref=e511] [cursor=pointer]
+              - button "查看说明" [ref=e513] [cursor=pointer]:
+                - generic [ref=e514]: info
+            - generic [ref=e515]:
+              - generic [ref=e516]: 交互风格（人群）
+              - generic [ref=e517]:
+                - button "默认" [ref=e518] [cursor=pointer]
+                - button "学生党" [ref=e519] [cursor=pointer]
+                - button "上班族" [ref=e520] [cursor=pointer]
+                - button "长辈" [ref=e521] [cursor=pointer]
+        - generic [ref=e286]:
+          - generic [ref=e288]:
+            - generic [ref=e289]: person
+            - text: 个人购物偏好档案（所有商品推荐的永久参考）
+            - button "查看说明" [ref=e291] [cursor=pointer]:
+              - generic [ref=e292]: info
+          - generic [ref=e293]:
+            - button "edit_note 分批引导录入" [ref=e294] [cursor=pointer]:
+              - generic [ref=e295]: edit_note
+              - text: 分批引导录入
+            - button "search 查看档案（表格）" [ref=e296] [cursor=pointer]:
+              - generic [ref=e297]: search
+              - text: 查看档案（表格）
+            - button "save 保存修改" [ref=e298] [cursor=pointer]:
+              - generic [ref=e299]: save
+              - text: 保存修改
+            - button "delete 清空全部档案" [ref=e300] [cursor=pointer]:
+              - generic [ref=e301]: delete
+              - text: 清空全部档案
+          - generic [ref=e302]:
+            - generic [ref=e303]:
+              - generic [ref=e304]:
+                - generic [ref=e305]: 必填
+                - generic [ref=e306]: 基础画像与收货信息
+                - generic [ref=e307]: 这 10 项直接决定推荐准确度，收货信息用于下单模拟
+              - table [ref=e308]:
+                - rowgroup [ref=e309]:
+                  - row [ref=e310]:
+                    - rowheader "身高 (cm)" [ref=e311]
+                    - cell [ref=e312]:
+                      - textbox "留空表示暂不填写" [ref=e313]
+                  - row [ref=e314]:
+                    - rowheader "体重 (kg)" [ref=e315]
+                    - cell [ref=e316]:
+                      - textbox "留空表示暂不填写" [ref=e317]
+                  - row [ref=e318]:
+                    - rowheader "尺码习惯（偏宽松/合身/偏紧，选码偏大/偏小）" [ref=e319]
+                    - cell [ref=e320]:
+                      - textbox "留空表示暂不填写" [ref=e321]
+                  - row [ref=e322]:
+                    - rowheader "喜爱色系（逗号分隔）" [ref=e323]
+                    - cell [ref=e324]:
+                      - textbox "留空表示暂不填写" [ref=e325]
+                  - row [ref=e326]:
+                    - rowheader "避雷颜色（逗号分隔）" [ref=e327]
+                    - cell [ref=e328]:
+                      - textbox "留空表示暂不填写" [ref=e329]
+                  - row [ref=e330]:
+                    - rowheader "预算上限 (元)" [ref=e331]
+                    - cell [ref=e332]:
+                      - textbox "留空表示暂不填写" [ref=e333]
+                  - row [ref=e334]:
+                    - rowheader "优先因素（价格/质量/颜值/耐用/品牌/发货速度）" [ref=e335]
+                    - cell [ref=e336]:
+                      - textbox "留空表示暂不填写" [ref=e337]
+                  - row [ref=e338]:
+                    - rowheader "收货人姓名" [ref=e339]
+                    - cell [ref=e340]:
+                      - textbox "留空表示暂不填写" [ref=e341]
+                  - row [ref=e342]:
+                    - rowheader "联系电话" [ref=e343]
+                    - cell [ref=e344]:
+                      - textbox "留空表示暂不填写" [ref=e345]
+                  - row [ref=e346]:
+                    - rowheader "收货地址" [ref=e347]
+                    - cell [ref=e348]:
+                      - textbox "留空表示暂不填写" [ref=e349]
+            - generic [ref=e350]:
+              - generic [ref=e351]:
+                - generic [ref=e352]: 选填
+                - generic [ref=e353]: 个人画像与体型尺码
+                - generic [ref=e354]: 不填不影响使用，填了推荐更准
+              - table [ref=e355]:
+                - rowgroup [ref=e356]:
+                  - row [ref=e357]:
+                    - rowheader "年龄段（如 18-24 / 25-30 / 30-40 / 40+）" [ref=e358]
+                    - cell [ref=e359]:
+                      - textbox "留空表示暂不填写" [ref=e360]
+                  - row [ref=e361]:
+                    - rowheader "职业（如学生 / 上班族 / 教师）" [ref=e362]
+                    - cell [ref=e363]:
+                      - textbox "留空表示暂不填写" [ref=e364]
+                  - row [ref=e365]:
+                    - rowheader "肩宽 (cm)" [ref=e366]
+                    - cell [ref=e367]:
+                      - textbox "留空表示暂不填写" [ref=e368]
+                  - row [ref=e369]:
+                    - rowheader "腰围 (cm)" [ref=e370]
+                    - cell [ref=e371]:
+                      - textbox "留空表示暂不填写" [ref=e372]
+                  - row [ref=e373]:
+                    - rowheader "上装尺码（如 M / 170/92A）" [ref=e374]
+                    - cell [ref=e375]:
+                      - textbox "留空表示暂不填写" [ref=e376]
+                  - row [ref=e377]:
+                    - rowheader "下装尺码（如 32 / 170/74A）" [ref=e378]
+                    - cell [ref=e379]:
+                      - textbox "留空表示暂不填写" [ref=e380]
+                  - row [ref=e381]:
+                    - rowheader "鞋码（如 42）" [ref=e382]
+                    - cell [ref=e383]:
+                      - textbox "留空表示暂不填写" [ref=e384]
+                  - row [ref=e385]:
+                    - rowheader "肤质（如敏感肌 / 油性）" [ref=e386]
+                    - cell [ref=e387]:
+                      - textbox "留空表示暂不填写" [ref=e388]
+            - generic [ref=e389]:
+              - generic [ref=e390]:
+                - generic [ref=e391]: 选填
+                - generic [ref=e392]: 风格审美与场景
+                - generic [ref=e393]: 不填不影响使用，填了推荐更准
+              - table [ref=e394]:
+                - rowgroup [ref=e395]:
+                  - row [ref=e396]:
+                    - rowheader "风格偏好 2-3 个（逗号分隔）" [ref=e397]
+                    - cell [ref=e398]:
+                      - textbox "留空表示暂不填写" [ref=e399]
+                  - row [ref=e400]:
+                    - rowheader "版型偏好（如修身/收腰/宽松）" [ref=e401]
+                    - cell [ref=e402]:
+                      - textbox "留空表示暂不填写" [ref=e403]
+                  - row [ref=e404]:
+                    - rowheader "版型避雷" [ref=e405]
+                    - cell [ref=e406]:
+                      - textbox "留空表示暂不填写" [ref=e407]
+                  - row [ref=e408]:
+                    - rowheader "常用场景（如通勤/运动/居家/旅行，逗号分隔）" [ref=e409]
+                    - cell [ref=e410]:
+                      - textbox "留空表示暂不填写" [ref=e411]
+                  - row [ref=e412]:
+                    - rowheader "讨厌的元素（如荧光色/廉价拉链）" [ref=e413]
+                    - cell [ref=e414]:
+                      - textbox "留空表示暂不填写" [ref=e415]
+                  - row [ref=e416]:
+                    - rowheader "其他偏好（如配饰偏好/忌口/特殊需求）" [ref=e417]
+                    - cell [ref=e418]:
+                      - textbox "留空表示暂不填写" [ref=e419]
+            - generic [ref=e420]:
+              - generic [ref=e421]:
+                - generic [ref=e422]: 选填
+                - generic [ref=e423]: 材质与气候
+                - generic [ref=e424]: 不填不影响使用，填了推荐更准
+              - table [ref=e425]:
+                - rowgroup [ref=e426]:
+                  - row [ref=e427]:
+                    - rowheader "材质偏好：喜欢的面料" [ref=e428]
+                    - cell [ref=e429]:
+                      - textbox "留空表示暂不填写" [ref=e430]
+                  - row [ref=e431]:
+                    - rowheader "材质避雷：不喜欢的面料" [ref=e432]
+                    - cell [ref=e433]:
+                      - textbox "留空表示暂不填写" [ref=e434]
+                  - row [ref=e435]:
+                    - rowheader "所在气候（如南方湿热 / 北方干冷 / 四季分明）" [ref=e436]
+                    - cell [ref=e437]:
+                      - textbox "留空表示暂不填写" [ref=e438]
+            - generic [ref=e439]:
+              - generic [ref=e440]:
+                - generic [ref=e441]: 选填
+                - generic [ref=e442]: 品牌与渠道
+                - generic [ref=e443]: 不填不影响使用，填了推荐更准
+              - table [ref=e444]:
+                - rowgroup [ref=e445]:
+                  - row [ref=e446]:
+                    - rowheader "品牌偏好-允许（逗号分隔）" [ref=e447]
+                    - cell [ref=e448]:
+                      - textbox "留空表示暂不填写" [ref=e449]
+                  - row [ref=e450]:
+                    - rowheader "品牌偏好-排除（逗号分隔）" [ref=e451]
+                    - cell [ref=e452]:
+                      - textbox "留空表示暂不填写" [ref=e453]
+                  - row [ref=e454]:
+                    - rowheader "是否接受杂牌（是/否）" [ref=e455]
+                    - cell [ref=e456]:
+                      - textbox "留空表示暂不填写" [ref=e457]
+                  - row [ref=e458]:
+                    - rowheader "是否接受预售（是/否）" [ref=e459]
+                    - cell [ref=e460]:
+                      - textbox "留空表示暂不填写" [ref=e461]
+                  - row [ref=e462]:
+                    - rowheader "发货地区偏好（如江浙沪/广东/不限）" [ref=e463]
+                    - cell [ref=e464]:
+                      - textbox "留空表示暂不填写" [ref=e465]
+            - generic [ref=e466]:
+              - generic [ref=e467]:
+                - generic [ref=e468]: 选填
+                - generic [ref=e469]: 决策与服务偏好
+                - generic [ref=e470]: 不填不影响使用，填了推荐更准
+              - table [ref=e471]:
+                - rowgroup [ref=e472]:
+                  - row [ref=e473]:
+                    - rowheader "次要因素（价格/质量/颜值/耐用/品牌/发货速度）" [ref=e474]
+                    - cell [ref=e475]:
+                      - textbox "留空表示暂不填写" [ref=e476]
+                  - row [ref=e477]:
+                    - rowheader "选购优先级排序（价格/品质/外观/发货速度/品牌，逗号分隔）" [ref=e478]
+                    - cell [ref=e479]:
+                      - textbox "留空表示暂不填写" [ref=e480]
+                  - row [ref=e481]:
+                    - rowheader "运费偏好（优先免运费/无所谓）" [ref=e482]
+                    - cell [ref=e483]:
+                      - textbox "留空表示暂不填写" [ref=e484]
+                  - row [ref=e485]:
+                    - rowheader "售后偏好（如优先7天无理由+运费险）" [ref=e486]
+                    - cell [ref=e487]:
+                      - textbox "留空表示暂不填写" [ref=e488]
+                  - row [ref=e489]:
+                    - rowheader "特殊需求（如礼盒包装/加急）" [ref=e490]
+                    - cell [ref=e491]:
+                      - textbox "留空表示暂不填写" [ref=e492]
+  - generic [ref=e125]: 偏好已保存

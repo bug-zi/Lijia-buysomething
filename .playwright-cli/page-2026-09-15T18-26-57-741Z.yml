@@ -1,0 +1,108 @@
+- generic [ref=f2e2]:
+  - complementary [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - img "logo" [ref=f2e6]
+      - generic [ref=f2e7]: 购物AI助手
+    - navigation [ref=f2e8]:
+      - generic [ref=f2e9] [cursor=pointer]:
+        - generic [ref=f2e10]: chat_bubble
+        - generic [ref=f2e12]: 对话购物
+      - generic [ref=f2e13] [cursor=pointer]:
+        - generic [ref=f2e14]: inventory_2
+        - generic [ref=f2e16]: 订单 & 物流
+      - generic [ref=f2e17] [cursor=pointer]:
+        - generic [ref=f2e18]: checklist
+        - generic [ref=f2e20]: 购物清单
+      - generic [ref=f2e21] [cursor=pointer]:
+        - generic [ref=f2e22]: shopping_cart
+        - generic [ref=f2e24]: 虚拟购物车
+      - generic [ref=f2e25] [cursor=pointer]:
+        - generic [ref=f2e26]: emoji_events
+        - generic [ref=f2e28]: TOP3 推荐
+      - generic [ref=f2e29] [cursor=pointer]:
+        - generic [ref=f2e30]: person
+        - generic [ref=f2e32]: 用户中心
+      - generic [ref=f2e33] [cursor=pointer]:
+        - generic [ref=f2e34]: settings
+        - generic [ref=f2e36]: 配置库
+    - generic [ref=f2e38]:
+      - generic [ref=f2e39]: lightbulb
+      - generic [ref=f2e41]:
+        - generic [ref=f2e42]:
+          - text: 查单：
+          - code [ref=f2e128]: 我的订单
+          - text: 、
+          - code [ref=f2e129]: 物流
+          - text: 、
+          - code [ref=f2e130]: 售后 ODxxxx 尺码不合适
+        - generic [ref=f2e44]:
+          - generic [ref=f2e45] [cursor=pointer]
+          - generic [ref=f2e46] [cursor=pointer]
+          - generic [ref=f2e47] [cursor=pointer]
+          - generic [ref=f2e48] [cursor=pointer]
+          - generic [ref=f2e49] [cursor=pointer]
+          - generic [ref=f2e50] [cursor=pointer]
+          - generic [ref=f2e51] [cursor=pointer]
+          - generic [ref=f2e52] [cursor=pointer]
+          - generic [ref=f2e53] [cursor=pointer]
+          - generic [ref=f2e54] [cursor=pointer]
+  - main [ref=f2e72]:
+    - generic [ref=f2e73]:
+      - heading "对话购物 · 自然语言驱动全流程" [level=2] [ref=f2e74]
+      - generic [ref=f2e75]:
+        - generic [ref=f2e76]: 后端已连接
+        - generic [ref=f2e78]: 必填缺9项
+        - generic [ref=f2e80]: v1.0 · 零第三方依赖
+      - generic [ref=f2e82]:
+        - button "format_list_bulleted" [ref=f2e83] [cursor=pointer]
+        - button "dark_mode" [ref=f2e85] [cursor=pointer]
+        - button "pw_dialog_test P" [ref=f2e132] [cursor=pointer]:
+          - generic [ref=f2e89]: pw_dialog_test
+          - generic [ref=f2e90]: P
+    - generic [ref=f2e92]:
+      - generic [ref=f2e93]:
+        - generic [ref=f2e134]:
+          - img "AI" [ref=f2e136]
+          - generic [ref=f2e137]:
+            - paragraph [ref=f2e138]:
+              - text: 你好，我是你的
+              - strong [ref=f2e139]: 全自动个人购物AI助手
+              - text: 。用一句话说出想买什么，我来完成 需求澄清 → 跨平台选品 → 评价分析 →
+              - strong [ref=f2e140]: TOP3推荐
+              - text: → 下单模拟 → 物流跟踪。
+            - paragraph [ref=f2e141]:
+              - strong [ref=f2e142]: 可以这样开始
+              - text: ：
+            - list [ref=f2e143]:
+              - listitem [ref=f2e144]: 直接提需求：「买一条夏天通勤连衣裙，预算200以内」
+              - listitem [ref=f2e145]: 需求还模糊也不怕：我会先追问几个关键问题，再帮你搜
+              - listitem [ref=f2e146]: 看中后随时调整：「买第2款」「换更修身的」「给我前5名」
+              - listitem [ref=f2e147]: 上传商品图片：找同款、多图对比
+              - listitem [ref=f2e148]: 查单查售后：「我的订单」「物流」「售后 ODxxxx 尺码不合适」
+            - paragraph
+            - paragraph [ref=f2e149]: 还没想好买什么？先记进「购物清单」，想清楚了随时回来开聊。
+        - generic [ref=f2e111]:
+          - button "录入档案" [ref=f2e112] [cursor=pointer]
+          - button "查看档案" [ref=f2e113] [cursor=pointer]
+          - button "我的订单" [ref=f2e114] [cursor=pointer]
+          - button "最新物流" [ref=f2e115] [cursor=pointer]
+          - button "我的购物车" [ref=f2e116] [cursor=pointer]
+          - button "我的清单" [ref=f2e117] [cursor=pointer]
+          - button "浏览器抓取真实数据" [ref=f2e118] [cursor=pointer]
+        - generic [ref=f2e119]:
+          - generic "上传商品图片（找同款/对比）" [ref=f2e120] [cursor=pointer]: image
+          - textbox "输入购物需求，或上传图片找同款/对比（Shift+Enter 换行，Enter 发送）" [ref=f2e122]
+          - button "send" [ref=f2e123] [cursor=pointer]
+      - complementary:
+        - generic:
+          - generic: 会话列表
+          - generic:
+            - button "download"
+            - button "＋ 新建会话"
+        - generic:
+          - generic:
+            - generic "默认会话"
+            - generic:
+              - generic: 5 分钟前
+              - generic: 0 条
+              - button "删除"
