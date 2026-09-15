@@ -92,9 +92,19 @@ class ChatSession:
         # 1) 档案命令优先处理（支持档案批量录入）
         if self._collecting_profile:
             # 建档过程中，用户可以说"完成"或跳出
-            if text in ("完成", "结束建档", "退出建档", "停止录入"):
+            if text in ("完成", "结束建档", "退出建档", "停止录入",
+                        "不想录了", "不录了", "不想录入了", "退出", "暂停"):
                 self._collecting_profile = False
                 return "档案录入已暂停，随时回复「继续建档」可补充未填项。\n" + self.profile.view_profile()
+            # 明确转向新购物需求：用户改主意不想建档了 → 退出向导，转正常购物流程
+            if self._BUY_INTENT_RE.match(text):
+                self._collecting_profile = False
+                return "（已暂停档案录入，随时回「继续建档」接着填）\n\n" + self._chat_impl(text)
+            # 向导进行中的旁路意图（查档案/改档案/查订单/查清单/购物车/上下文提问）
+            # → 先应答旁路、不推进向导步数，答完附当前进度提示
+            side = self._collecting_side_intent(text)
+            if side is not None:
+                return side + "\n\n" + self.profile.collect_progress_hint()
             resp = self.profile.continue_collect(text)
             if "已收集完成" in resp:
                 self._collecting_profile = False
@@ -213,6 +223,13 @@ class ChatSession:
     # 自由问答：疑问信号（短句+疑问标记）与档案材料白名单（姓名/电话/地址等隐私绝不入 prompt）
     _QA_QUESTION_RE = re.compile(
         r"[??]|为什么|哪个|哪些|怎么|怎么样|好不好|值不值|划算|值得吗|多少|有没有|能不能|可不可以|区别|差别|对比|理由|合适吗|好吗|行吗")
+
+    # 建档向导进行中，明确转向新购物需求的入口（「买/求购/来点…」开头；
+    # 「跳过/完成」等向导应答词不在此列，避免误退出）
+    _BUY_INTENT_RE = re.compile(
+        r"^\s*(?:我|帮我|帮忙|请|麻烦)?\s*(?:想|要|打算|准备|计划|需要)?\s*"
+        r"(?:购买|买|求购|来点|来一份|想吃|想喝|搜一下|搜索|查一下|找个|找款)")
+
     _PROFILE_QA_KEYS = ["height", "weight", "budget_max", "color_like", "color_dislike",
                         "style_like", "style_dislike", "material_like", "material_dislike",
                         "fit_like", "fit_dislike", "size_habit", "brands_like", "brands_dislike",
@@ -222,6 +239,28 @@ class ChatSession:
         """短句 + 疑问信号 → 疑似基于上下文的追问（长句视为正常需求，避免误拦）"""
         t = (text or "").strip()
         return bool(t) and len(t) <= 40 and bool(self._QA_QUESTION_RE.search(t))
+
+    def _collecting_side_intent(self, text: str) -> Optional[str]:
+        """建档向导进行中的旁路意图：命中则应答该意图且不推进向导步数。
+        只收编无歧义的命令/疑问——向导应答（如「175」「偏宽松」「白色,粉色」）不会被误拦。"""
+        resp = self.profile.handle_command(text)
+        if resp is not None:
+            return resp
+        resp = self._handle_order_commands(text)
+        if resp is not None:
+            return resp
+        t = text.strip()
+        # 清单/购物车查看（收窄白名单：避开「取消/算了/继续」等可能与向导应答混淆的词）
+        if re.match(r"^(我的(购物)?清单|查看清单|购物清单)$", t):
+            return self.shopping_list.list_text()
+        if re.match(r"^(我的购物车|查看购物车|购物车)$", t):
+            return self.cart.list_text()
+        # 上下文提问：短句+疑问信号 → 自由问答兜底（无材料/LLM不可用时 None，落回向导应答）
+        if self._looks_like_question(text):
+            qa = self._try_free_qa(text)
+            if qa is not None:
+                return qa
+        return None
 
     def _try_free_qa(self, question: str) -> Optional[str]:
         """自由问答兜底：基于会话材料（上次推荐+历史窗口+档案摘要）LLM 答疑。

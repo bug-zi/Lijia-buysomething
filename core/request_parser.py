@@ -14,8 +14,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from ai_client import parse_shopping_request_with_llm  # 可选 AI 增强
+    from ai_client import generate_clarify_questions_with_llm  # 可选 AI 增强：现场生成品类澄清问卷
 except Exception:
     parse_shopping_request_with_llm = None
+    generate_clarify_questions_with_llm = None
 
 
 @dataclass
@@ -125,6 +127,29 @@ _CATEGORY_QUESTIONS = [
      ],
      "extra": [{"key": "wear_scene", "label": "穿法场景（内搭/外穿/运动等）", "optional": True},
                {"key": "pattern", "label": "图案偏好（纯色/字母/动漫联名等）", "optional": True}]},
+    {"match": ("泡面", "方便面", "桶面", "碗面", "即食面", "速食面", "煮面"),
+     "core_attrs": [
+         {"key": "flavor", "label": "口味偏好", "options": ["红烧牛肉", "香辣", "酸辣", "老坛酸菜", "番茄", "豚骨/日式", "菌菇", "不限"], "multi": True},
+         {"key": "brand", "label": "品牌偏好", "options": ["康师傅", "统一", "白象", "今麦郎", "汤达人", "农心", "不限"], "multi": True},
+         {"key": "pack", "label": "包装规格", "options": ["袋装", "桶装", "盒装/碗面", "整箱囤货", "单份尝鲜"], "multi": True},
+     ],
+     "extra": [{"key": "noodle", "label": "面体要求（非油炸/宽面/细面/半干鲜面等）", "optional": True},
+               {"key": "diet", "label": "健康/其他要求（低钠/大分量/带酱料等）", "optional": True}]},
+    {"match": ("零食", "薯片", "饼干", "坚果", "辣条", "糖果", "肉干", "果冻", "面包", "蛋糕", "巧克力"),
+     "core_attrs": [
+         {"key": "type", "label": "想吃哪类", "options": ["膨化薯片", "饼干糕点", "坚果炒货", "肉类卤味", "糖果巧克力", "果干蜜饯"], "multi": True},
+         {"key": "flavor", "label": "口味偏好", "options": ["咸香", "香辣", "甜", "酸甜", "原味", "不限"], "multi": True},
+     ],
+     "extra": [{"key": "brand", "label": "品牌偏好（可自行填写）", "optional": True},
+               {"key": "diet", "label": "健康要求（低卡/非油炸/无添加糖等）", "optional": True}]},
+    {"match": ("饮料", "可乐", "奶茶", "咖啡", "果汁", "气泡水", "矿泉水", "酸奶", "能量饮料", "功能饮料",
+               "茶饮", "冰红茶", "绿茶", "红茶", "乌龙茶", "冰茶", "柠檬茶"),
+     "core_attrs": [
+         {"key": "type", "label": "想要哪类", "options": ["碳酸", "果汁", "茶饮", "咖啡", "乳饮/酸奶", "功能/能量", "水/气泡水"], "multi": True},
+         {"key": "pack", "label": "规格", "options": ["小瓶单罐", "500ml常规", "大瓶1L以上", "整箱囤"], "multi": True},
+     ],
+     "extra": [{"key": "sugar", "label": "糖度要求（无糖/低糖/不限）", "optional": True},
+               {"key": "brand", "label": "品牌偏好（可自行填写）", "optional": True}]},
 ]
 # 未知品类兜底问题集
 _QUESTIONS_GENERIC = {
@@ -135,6 +160,17 @@ _QUESTIONS_GENERIC = {
     "extra": [{"key": "color", "label": "颜色偏好", "optional": True},
               {"key": "other", "label": "其他要求（尺寸/规格/品牌等）", "optional": True}],
 }
+# 吃喝场景但品类未收录时的兜底问题集（问法按食品属性，避免「材质/颜色」式错位）
+_QUESTIONS_FOOD_GENERIC = {
+    "match": (),
+    "core_attrs": [
+        {"key": "attrs", "label": "有什么具体要求（口味/品牌/规格数量等）", "options": None, "multi": True},
+    ],
+    "extra": [{"key": "flavor", "label": "口味偏好（咸香/香辣/甜/原味等）", "optional": True},
+              {"key": "other", "label": "其他要求（品牌/规格/健康需求等）", "optional": True}],
+}
+# 吃喝信号词：命中即认为当前需求属食品饮料场景
+_FOOD_CUE_RE = re.compile(r"吃|喝|零食|食品|速食|熟食|囤|解馋|夜宵|宵夜|早餐|午餐|晚餐|泡面")
 _PURPOSE_Q = "主要什么场景用？（如自用/送礼/办公/通勤/运动…）"
 _PURPOSE_CHIPS = ["自用", "送礼", "办公", "通勤"]
 
@@ -197,28 +233,117 @@ class RequestParser:
 
     def clarify_form(self, req: "ShoppingRequest") -> Optional[Dict[str, Any]]:
         """结构化澄清表单（网页端追问表单的数据源）：核心缺失维度在前（带选项或自填），
-        次要方向问题恒 2 问殿后（选填，用户写进补充栏），总计 4~6 问；无核心缺失返回 None。"""
+        次要方向问题殿后（选填），总计 4~6 问；无核心缺失返回 None。
+        品类属性问题主路径 = 提取关键词后由 AI 现场生成（任何商品都有适配问法）；
+        AI 失败/关闭/产出非法 → 回退静态品类表与兜底表（LLM 仅增强红线）。"""
         dims = self.missing_dims(req)
         if not dims:
             return None
         t = f"{req.category or ''} {req.keyword or ''}".strip().lower()
-        cq = _QUESTIONS_GENERIC
-        for entry in _CATEGORY_QUESTIONS:
-            if any(w in t for w in entry["match"]):
-                cq = entry
-                break
+        # 吃喝场景判定与品类表无关（食品化用途选项两条路径都要生效）
+        is_food = bool(_FOOD_CUE_RE.search(t))
+
+        ai_qs, ai_purpose = self._clarify_questions_via_llm(req)
+        if ai_qs:
+            attr_questions = ai_qs
+        else:
+            # 静态兜底：品类问题表 → 食品兜底 → 通用兜底
+            cq = None
+            for entry in _CATEGORY_QUESTIONS:
+                if any(w in t for w in entry["match"]):
+                    cq = entry
+                    break
+            if cq is None:
+                cq = _QUESTIONS_FOOD_GENERIC if is_food else _QUESTIONS_GENERIC
+            attr_questions = list(cq["core_attrs"]) + list(cq["extra"])
+
         questions: List[Dict[str, Any]] = []
         if "budget" in dims:
             questions.append(dict(_Q_BUDGET))
         if "purpose" in dims:
-            questions.append(dict(_Q_PURPOSE))
+            q = dict(_Q_PURPOSE)
+            if ai_purpose:
+                q["options"] = ai_purpose
+            elif is_food:
+                q["options"] = ["自用", "囤货", "送礼", "夜宵/加班", "分享"]
+            questions.append(q)
         if "attrs" in dims:
-            for q in cq["core_attrs"]:
-                questions.append(dict(q))
-        for q in cq["extra"]:
-            questions.append(dict(q))
+            questions.extend(dict(q) for q in attr_questions if not q.get("optional"))
+        questions.extend(dict(q) for q in attr_questions if q.get("optional"))
+        # 总量上限 6 问：超限时从尾部优先裁选填方向问
+        while len(questions) > 6:
+            for i in range(len(questions) - 1, -1, -1):
+                if questions[i].get("optional"):
+                    del questions[i]
+                    break
+            else:
+                questions = questions[:6]
         target = (req.category or (req.keyword or "").strip() or "商品")
         return {"target": target, "questions": questions, "skip_text": "直接搜"}
+
+    def _clarify_questions_via_llm(self, req: "ShoppingRequest"
+                                   ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """AI 现场生成品类澄清问题（LLM 仅增强）。返回 (问题列表, 用途选项列表)；
+        AI 关闭/失败/产出非法 → ([], [])，上层走静态表兜底。"""
+        if generate_clarify_questions_with_llm is None:
+            return [], []
+        keyword = (req.keyword or req.category or "").strip()
+        if not keyword:
+            return [], []
+        known: Dict[str, Any] = {}
+        if req.price_max is not None:
+            known["预算上限"] = req.price_max
+        if req.price_min is not None:
+            known["预算下限"] = req.price_min
+        if (req.purpose or "").strip():
+            known["用途"] = req.purpose
+        if req.require_tags:
+            known["已提要求"] = req.require_tags
+        try:
+            j = generate_clarify_questions_with_llm(keyword, req.raw, known)
+        except Exception:
+            return [], []
+        if not j:
+            return [], []
+        qs: List[Dict[str, Any]] = []
+        for q in (j.get("questions") or [])[:6]:
+            s = self._sanitize_ai_question(q)
+            # 预算/用途两问恒由规则生成，AI 若擅自出了同名/同义题则剔除防重复
+            if s and s["key"] in ("budget", "purpose", "price", "price_range", "budget_range"):
+                continue
+            if s:
+                qs.append(s)
+        core = [q for q in qs if not q["optional"]][:3]
+        extra = [q for q in qs if q["optional"]][:2]
+        purpose_opts: List[str] = []
+        if isinstance(j.get("purpose_options"), list):
+            for o in j["purpose_options"]:
+                o = str(o or "").strip()
+                if o and not any(ch.isdigit() for ch in o) and 1 <= len(o) <= 8 and o not in purpose_opts:
+                    purpose_opts.append(o)
+        return core + extra, purpose_opts[:5]
+
+    @staticmethod
+    def _sanitize_ai_question(q: Any) -> Optional[Dict[str, Any]]:
+        """消毒 AI 产出的问题项：label 必须有且不过长；key 归一为英文标识符；
+        选项去重并剔除含数字项（防被 _parse_budget 误解析为预算），有效选项不足 2 个转自填。"""
+        if not isinstance(q, dict):
+            return None
+        label = str(q.get("label") or "").strip()
+        if not label or len(label) > 40:
+            return None
+        key = re.sub(r"[^a-z0-9_]", "", str(q.get("key") or "").lower())[:24] or "attr"
+        options: Optional[List[str]] = None
+        if isinstance(q.get("options"), list):
+            cleaned: List[str] = []
+            for o in q["options"]:
+                o = str(o or "").strip()
+                if o and not any(ch.isdigit() for ch in o) and 1 <= len(o) <= 8 and o not in cleaned:
+                    cleaned.append(o)
+            if len(cleaned) >= 2:
+                options = cleaned[:8]
+        return {"key": key, "label": label, "options": options,
+                "multi": bool(q.get("multi")), "optional": bool(q.get("optional"))}
 
     def _parse_rules(self, text: str) -> ShoppingRequest:
         """原来的 parse 全量逻辑（规则版），改名后不改动内部流程"""
@@ -479,7 +604,12 @@ class RequestParser:
     def _extract_keyword(self, t: str, req: ShoppingRequest) -> str:
         s = t
         # 移除数量/价格/平台等干扰词（顺序必须先处理 X-Y 范围，再处理单独带符号的残片如"-300"）
-        s = re.sub(r"(购买|帮我|我要|想要|想买|推荐|看看|搜索|查找|给我|请|麻烦)", "", s)
+        s = re.sub(r"(购买|帮我|我要|想要|想买|推荐|看看|搜索|查找|给我|请|麻烦|来点|来一份|求购|想吃|想喝)", "", s)
+        # 数量量词（一箱/两袋/几桶/半打/10包等）：囤货数量对搜索无意义，整段去掉（含「装」避免残出「装泡面」；
+        # 「条」刻意不入表——连衣裙/裤子等衣物量词是关键词本体）
+        s = re.sub(r"[一二两三四五六七八九十几半\d]+\s*(箱|袋|桶|盒|包|罐|瓶|斤|公斤|克|千克|升|毫升|份|打|把|支|只|张|台|部|块|颗|根|粒|卷|副)(?:装)?", "", s)
+        # 开头虚词（人称代词/来）：「我想买一箱泡面」→「泡面」、「来一瓶冰红茶」→「冰红茶」
+        s = re.sub(r"^\s*(?:我|我们|咱|您|来)(?:们)?", "", s)
         # 条数短语先整段移除（前N名 / 各筛前N名 / TOP N / 推荐N款），避免数字剥离后留下残片
         s = re.sub(r"各[^。,，\s]{0,8}?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
         s = re.sub(r"(?:排名|综合)?前\s*[0-9一二三四五六七八九十]+\s*(?:名|个|款|位|条)?", "", s)
@@ -511,7 +641,7 @@ class RequestParser:
         s = re.sub(r"[、,，。.!！?？；;：:·\-\s]+", " ", s).strip()
         # 清理粘在实词前面的单字量词/助词（例如"个通勤运动鞋" → "通勤运动鞋"；
         # "的连衣裙" → "连衣裙"）。循环剥到不再变化为止
-        _CJK_STOPS_PREFIX = set("个的了着过呢啊吧吗呀哦嗯和与及就又也都还只给让要到下上")
+        _CJK_STOPS_PREFIX = set("个的了着过呢啊吧吗呀哦嗯和与及就又也都还只给让要到下上点些")
         changed = True
         while changed:
             changed = False

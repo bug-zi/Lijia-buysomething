@@ -204,6 +204,15 @@ class ProfileManager:
         self._collect_step_index += 1
         return self._next_collect_prompt()
 
+    def collect_progress_hint(self) -> str:
+        """建档进行中的进度提示：向导暂停、应答旁路问题后附上，方便用户接着填"""
+        if self._collect_step_index >= len(COLLECT_STEPS):
+            return "—— 建档步骤已全部走完，回「查看档案」可浏览。"
+        keys = COLLECT_STEPS[self._collect_step_index]
+        labels = " / ".join(PROFILE_FIELDS.get(k, k) for k in keys)
+        return (f"—— 档案录入仍停在第 {self._collect_step_index + 1}/{len(COLLECT_STEPS)} 步"
+                f"（待填：{labels}）。直接回答可继续，回「跳过」略过，回「完成」暂停。")
+
     def _parse_answer(self, answer: str, expected_keys: list) -> Dict[str, str]:
         """
         解析用户回答为 {字段: 值}；支持多种格式：

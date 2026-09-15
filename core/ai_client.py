@@ -295,8 +295,11 @@ def _test_once(api_key: str, base_url: str, model: str, timeout: int):
 
 
 def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
-                    max_tokens: int = 800, json_mode: bool = False, timeout: int = 15) -> Optional[str]:
+                    max_tokens: int = 800, json_mode: bool = False, timeout: int = 15,
+                    model: Optional[str] = None) -> Optional[str]:
     """返回纯文本响应，失败返回 None。调用方自行决定如何兜底。
+
+    model：按次覆盖所用模型（None=用全局配置）。轻任务可指到更快的模型，避免拖慢主流程。
 
     说明：针对"长响应被截断"做了两点处理：
       1) 默认不再给用户侧设置 max_tokens 的 2 倍上限；若服务商报错再自动重试一次。
@@ -306,12 +309,13 @@ def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
     with _cfg_lock:
         if not _CFG.enabled:
             return None
-        api_key, base_url, model = _CFG.api_key, _CFG.base_url, _CFG.model
+        api_key, base_url = _CFG.api_key, _CFG.base_url
+        use_model = (model or _CFG.model or "").strip()
 
     url = base_url.rstrip("/") + "/chat/completions"
 
     def _build_payload(max_t: int) -> bytes:
-        payload: Dict[str, Any] = {"model": model, "messages": messages,
+        payload: Dict[str, Any] = {"model": use_model, "messages": messages,
                                    "temperature": temperature, "max_tokens": max_t}
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -447,6 +451,50 @@ def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
         {"role": "user", "content": user_prompt},
     ], temperature=0.1, max_tokens=700, json_mode=True, timeout=8)
     j = _extract_json(text) if text else None
+    return j
+
+
+def generate_clarify_questions_with_llm(keyword: str, raw_text: str = "",
+                                        known: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """按商品关键词现场生成品类适配的澄清问卷（AI 增强：任何商品都能问出其专属选购要点）。
+    返回 {"questions":[{key,label,options,multi,optional}...], "purpose_options":[...]}；
+    失败/不可用/产出非法返回 None，上层回退静态品类问题表（规则兜底红线）。"""
+    kw = (keyword or "").strip()
+    if not kw:
+        return None
+    try:
+        if not get_config().get("enabled"):
+            return None  # AI 关闭 → 直接走静态兜底（离线测试亦经此短路）
+    except Exception:
+        return None
+    sys_prompt = """你是购物需求澄清助手，严格输出JSON对象。针对用户想买的商品生成贴合其核心选购属性的澄清问题，帮助后续电商搜索更精准。
+{"questions":[{"key":"英文小写","label":"中文短问","options":["选项"],"multi":true,"optional":false}],"purpose_options":["用途选项"]}
+硬性要求：
+- questions 共3个：前2个为该商品的关键选购属性（各带3~6个常见取值选项，multi表示可否多选），第3个为次要方向问（optional=true，options填null，label括号内给方向提示）。任何商品都问得出它独有的选购要点（例：泡面→口味/包装规格；机械键盘→轴体/连接方式；窗帘→材质/遮光）。
+- 选项2~8个字且严禁包含任何数字或价格（容量写「小/中/大容量」禁止「500ml」），防止被误解析成预算。
+- 不问预算，不问[已知信息]里已有的内容；label 不超过20字。
+- purpose_options：3~5个贴合该品类的用途选项（食品给「囤货/夜宵加班」，数码给「游戏/办公」，不要张冠李戴）。
+- 只输出一个合法JSON对象，禁止emoji，不要输出思考过程。"""
+    user_prompt = (
+        f"[商品关键词] {kw}\n"
+        f"[用户原始表述] {(raw_text or kw).strip()[:120]}\n"
+        f"[已知信息（不要重复追问）]\n{json.dumps(known or {}, ensure_ascii=False)}\n\n请输出JSON："
+    )
+    # 问卷生成属轻任务：智谱直连时指到 flash 快档（实测主档 glm-5.3 生成一张问卷 40s+，flash 约 15s；
+    # 其他服务商不指名，避免请求不存在的模型）
+    model_override = None
+    try:
+        if "bigmodel.cn" in (get_config().get("base_url") or "").lower():
+            model_override = "glm-5.3-flash"
+    except Exception:
+        model_override = None
+    text = chat_completion([
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_prompt},
+    ], temperature=0.3, max_tokens=1200, json_mode=True, timeout=25, model=model_override)
+    j = _extract_json(text) if text else None
+    if not j or not isinstance(j.get("questions"), list) or not j["questions"]:
+        return None
     return j
 
 

@@ -245,6 +245,12 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .sidebar-footer .tip {
   display: flex; align-items: flex-start; gap: 6px;
 }
+.tip-carousel { flex: 1; min-width: 0; }
+.tip-text { min-height: 40px; transition: opacity .35s ease; }
+.tip-text.fade { opacity: 0; }
+.tip-dots { display: flex; gap: 5px; margin-top: 4px; }
+.tip-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); cursor: pointer; transition: all .2s ease; }
+.tip-dots span.on { background: var(--primary); width: 16px; border-radius: 4px; }
 .sidebar-footer code {
   background: var(--mute-bg); padding: 0 5px; border-radius: 4px;
   color: var(--text-1); font-size: 11.5px;
@@ -824,9 +830,44 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
 .chat-msg .avatar .material-symbols-outlined { font-size: 18px; }
 .empty .big .material-symbols-outlined { font-size: 46px; }
 .send-btn .material-symbols-outlined { font-size: 18px; }
-.chat-bubble a.md-link { color: var(--primary-dark); text-decoration: underline; word-break: break-all; }
+/* 聊天气泡内链接：单行显示，超长以省略号截断（href 保留完整地址，点击仍跳原页面） */
+.chat-bubble a.md-link { color: var(--primary-dark); text-decoration: underline;
+  display: inline-block; max-width: 100%; vertical-align: bottom;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-bubble a.md-link:hover { opacity: .85; }
 .chat-bubble.chat-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* AI 长消息（多商品）折叠段 + 快速跳转条（仅展示层增强，不改写消息数据） */
+.prod-nav {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 2px 0 10px; padding: 7px 10px;
+  background: var(--mute-bg); border: 1px solid var(--border); border-radius: 10px;
+}
+.prod-nav-label { font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 4px; margin-right: 2px; }
+.prod-nav-label .material-symbols-outlined { font-size: 15px; }
+.prod-nav-chip {
+  font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--border); color: var(--text-2);
+  transition: all .15s ease; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.prod-nav-chip b { color: var(--text-1); font-weight: 600; }
+.prod-nav-chip:hover { color: var(--primary-dark); border-color: var(--primary); }
+.prod-sec { border: 1px solid var(--border); border-radius: 10px; margin: 8px 0; overflow: hidden; background: var(--card); }
+.prod-sec .prod-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 9px 12px; cursor: pointer; border: none; background: transparent;
+  font-size: 13.5px; color: var(--text-1); font-family: inherit;
+}
+.prod-sec .prod-head:hover { background: var(--mute-bg); }
+.prod-sec .ph-rank { font-weight: 700; color: var(--primary-dark); flex-shrink: 0; }
+.prod-sec .ph-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prod-sec .ph-meta { font-size: 11.5px; color: var(--text-3); flex-shrink: 0; }
+.prod-sec .prod-head > .material-symbols-outlined { font-size: 18px; color: var(--text-3); transition: transform .18s ease; flex-shrink: 0; }
+.prod-sec.open .prod-head > .material-symbols-outlined { transform: rotate(180deg); }
+.prod-sec .prod-body { display: none; padding: 2px 12px 8px; border-top: 1px dashed var(--border); }
+.prod-sec.open .prod-body { display: block; }
+.prod-sec.flash { animation: prodFlash 1.2s ease; }
+@keyframes prodFlash { 0%, 55% { box-shadow: 0 0 0 2px var(--primary); } 100% { box-shadow: 0 0 0 0 transparent; } }
 
 /* 澄清表单（维度追问表单化：分题点选+每题可自填+补充栏+统一提交） */
 .clarify-form { display: flex; flex-direction: column; gap: 12px; min-width: min(520px, 100%); }
@@ -1035,11 +1076,10 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
     <div class="sidebar-footer">
       <div class="tip">
         <span><span class="material-symbols-outlined">lightbulb</span></span>
-        <span>快速开始：<br>
-          先 <code>录入档案</code> 建档<br>
-          再 <code>买夏天连衣裙 200以内</code><br>
-          下单前必须二次确认
-        </span>
+        <div class="tip-carousel" id="tip-carousel">
+          <div class="tip-text" id="tip-text"></div>
+          <div class="tip-dots" id="tip-dots"></div>
+        </div>
       </div>
     </div>
   </aside>
@@ -1077,9 +1117,6 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div class="quick-chips" id="quick-chips">
           <button class="chip" onclick="sendMsg('录入档案')">录入档案</button>
           <button class="chip" onclick="sendMsg('查看档案')">查看档案</button>
-          <button class="chip" onclick="sendMsg('买一条夏天的连衣裙，预算200以内')">连衣裙 ≤200</button>
-          <button class="chip" onclick="sendMsg('推荐一双通勤运动鞋，200-400之间')">运动鞋 200-400</button>
-          <button class="chip" onclick="sendMsg('买一个降噪耳机，1500以下，京东')">京东降噪耳机 ≤1500</button>
           <button class="chip" onclick="sendMsg('我的订单')">我的订单</button>
           <button class="chip" onclick="sendMsg('物流')">最新物流</button>
           <button class="chip" onclick="sendMsg('展示我的购物车')">我的购物车</button>
@@ -1133,8 +1170,6 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
           <span class="help" style="margin:0;">性别：</span>
           <div class="seg" id="uc-gender"></div>
-          <span class="help" style="margin:0;">头像色：</span>
-          <div class="skin-dots" id="uc-colors"></div>
           <button class="btn sm ghost" onclick="resetUcAvatar()" title="移除自定义头像，恢复按性别选择的系统默认头像">恢复默认头像</button>
           <button class="btn primary sm" onclick="saveUserCenter()"><span class="material-symbols-outlined">save</span> 保存账户</button>
         </div>
@@ -1471,12 +1506,14 @@ function switchTab(id) {
 /* =============== Tab 1: 聊天 =============== */
 const WELCOME_TEXT =
   "你好，我是你的**全自动个人购物AI助手**。\n" +
-  "我可以帮你完成：建立偏好档案 → 跨平台选品 → 评价分析 → **TOP3推荐** → 下单模拟 → 物流跟踪 完整闭环。\n\n" +
-  "**试试下面的快捷按钮**，或直接输入你的购物需求，例如：\n" +
-  "- 「录入档案」建立偏好\n" +
-  "- 「买一条夏天的连衣裙，预算200以内，不要黑色」\n" +
-  "- 推荐后回「买第2款」「换更修身的」「预算升到300」调整\n" +
-  "- 「我的订单」「物流」「售后 ODxxxx 尺码不合适」查单查售后";
+  "用一句话说出想买什么，我来完成 需求澄清 → 跨平台选品 → 评价分析 → **TOP3推荐** → 下单模拟 → 物流跟踪。\n\n" +
+  "**可以这样开始**：\n" +
+  "- 直接提需求：「买一条夏天通勤连衣裙，预算200以内」\n" +
+  "- 需求还模糊也不怕：我会先追问几个关键问题，再帮你搜\n" +
+  "- 看中后随时调整：「买第2款」「换更修身的」「给我前5名」\n" +
+  "- 上传商品图片：找同款、多图对比\n" +
+  "- 查单查售后：「我的订单」「物流」「售后 ODxxxx 尺码不合适」\n\n" +
+  "还没想好买什么？先记进「购物清单」，想清楚了随时回来开聊。";
 
 $("#welcome-bubble").innerHTML = renderMarkdown(WELCOME_TEXT);
 
@@ -1603,6 +1640,7 @@ function appendMsg(role, htmlText, opts = {}) {
   el.innerHTML =
     avatarHtml(role) +
     `<div class="chat-bubble">${htmlText}</div>`;
+  if (role === "ai") enhanceAiLongMsg(el);
   wrap.appendChild(el);
   // 图片异步加载会撑高内容：加载完成后若视口仍在底部附近，补一次滚动，避免最后一条消息下半截留在屏外
   el.querySelectorAll("img.md-img").forEach(img => {
@@ -1613,6 +1651,80 @@ function appendMsg(role, htmlText, opts = {}) {
   });
   scrollChat(!!opts.instant);
   return el;
+}
+
+/* AI 长消息展示层增强：含 ≥2 个「第X名」商品段时自动折叠，顶部生成快速跳转条。
+   只重排 DOM 不改写消息数据，历史会话重渲染时同样生效；单商品与普通消息不感知。 */
+const PROD_HEAD_RE = /^第[一二三四五六七八1-9]\s*名/;
+function enhanceAiLongMsg(el) {
+  const bubble = el.querySelector(".chat-bubble");
+  if (!bubble) return;
+  const heads = Array.from(bubble.querySelectorAll(":scope > h4"))
+    .filter(h => PROD_HEAD_RE.test(h.textContent.trim()));
+  if (heads.length < 2) return;
+
+  const secs = heads.map(h => {
+    const body = document.createElement("div");
+    body.className = "prod-body";
+    let n = h.nextSibling;
+    while (n && !(n.nodeType === 1 && (n.tagName === "HR" ||
+      (n.tagName === "H4" && PROD_HEAD_RE.test(n.textContent.trim()))))) {
+      const next = n.nextSibling;
+      body.appendChild(n);
+      n = next;
+    }
+    // 标题栏元信息：从正文提取现价与总分
+    const html = body.innerHTML;
+    const price = (html.match(/现价\s*<strong>¥([\d.]+)</) || [])[1];
+    const total = (html.match(/总分\s*<strong>(\d+)</) || [])[1];
+    const rankText = ((h.childNodes[0] && h.childNodes[0].textContent) || "").split("｜")[0].trim();
+    const nameEl = h.querySelector("strong");
+    const badgeEl = h.querySelector("code");
+    const name = nameEl ? nameEl.textContent : "";
+    const meta =
+      (price ? "¥" + price : "") +
+      (total ? (price ? " · " : "") + total + "分" : "") +
+      (badgeEl ? (price || total ? " · " : "") + badgeEl.textContent : "");
+
+    const sec = document.createElement("div");
+    sec.className = "prod-sec";
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "prod-head";
+    head.innerHTML =
+      '<span class="ph-rank">' + escapeHtml(rankText) + '</span>' +
+      '<span class="ph-name">' + escapeHtml(name) + '</span>' +
+      '<span class="ph-meta">' + escapeHtml(meta) + '</span>' +
+      '<span class="material-symbols-outlined">expand_more</span>';
+    head.addEventListener("click", () => sec.classList.toggle("open"));
+    sec.appendChild(head);
+    sec.appendChild(body);
+    h.replaceWith(sec);
+    return { sec, rankText, name, price, total };
+  });
+
+  const nav = document.createElement("div");
+  nav.className = "prod-nav";
+  nav.innerHTML =
+    '<span class="prod-nav-label"><span class="material-symbols-outlined">format_list_numbered</span>本条 ' +
+    secs.length + ' 款商品</span>';
+  const wrap = $("#chat-messages");
+  secs.forEach(({ sec, rankText, name, price, total }) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "prod-nav-chip";
+    chip.title = name;
+    chip.textContent = rankText + (price ? " ¥" + price : "") + (total ? " · " + total + "分" : "");
+    chip.addEventListener("click", () => {
+      secs.forEach(s => s.sec.classList.remove("open"));
+      sec.classList.add("open");
+      const top = sec.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop - 8;
+      wrap.scrollTo({ top, behavior: "smooth" });
+      sec.classList.remove("flash"); void sec.offsetWidth; sec.classList.add("flash");
+    });
+    nav.appendChild(chip);
+  });
+  bubble.insertBefore(nav, bubble.firstChild);
 }
 function appendChips(options) {
   const wrap = $("#chat-messages");
@@ -1878,8 +1990,6 @@ function toggleSessionSide(force) {
 })();
 
 /* =============== 用户中心：账户信息 + 界面/行为偏好 =============== */
-const UC_COLORS = [["classic","#1890ff","经典蓝"],["sakura","#c06c84","樱花粉"],
-  ["forest","#3d8a68","森野绿"],["sunset","#cf8a3e","暖阳橙"],["slate","#64748b","石板灰"]];
 const UC_PREF_ROWS = [
   { key:"font_size",    label:"文字大小",         opts:[["small","小"],["medium","标准"],["large","大"],["xlarge","特大"]] },
   { key:"font_family",  label:"界面字体",         opts:[["default","默认黑体"],["song","宋体"],["kai","楷体"]] },
@@ -1909,13 +2019,10 @@ async function loadUserCenter(){
 function renderUcAvatar(){
   const el = $("#uc-avatar");
   if(!el) return;
-  const color = (_uc && _uc.avatar_color) || "classic";
-  el.className = "uc-avatar " + color;
+  el.className = "uc-avatar " + ((_uc && _uc.avatar_color) || "classic");
   const src = ucAvatarSrc();
   if (src) el.innerHTML = '<img src="' + escapeHtml(src) + '" alt="头像">';
   else el.textContent = ((_uc && _uc.nickname) || "用").charAt(0).toUpperCase();
-  $("#uc-colors").innerHTML = UC_COLORS.map(([k,c,title]) =>
-    `<button class="skin-dot${k===color?" active":""}" style="--dot:${c}" title="${title}" onclick="pickUcColor('${k}')"></button>`).join("");
 }
 
 /* 性别（用于挑选系统默认头像） */
@@ -1960,11 +2067,9 @@ async function resetUcAvatar(){
   } else toast((r && r.error) || "操作失败","err");
 }
 
-function pickUcColor(k){ if(_uc){ _uc.avatar_color = k; renderUcAvatar(); } }
-
 async function saveUserCenter(){
   const r = await api("/api/usercenter","POST",
-    { nickname: $("#uc-nickname").value, avatar_color: _uc ? _uc.avatar_color : "classic" });
+    { nickname: $("#uc-nickname").value });
   if(r && r.ok){ _uc = r.user; renderUcAvatar(); toast("账户信息已保存","ok"); }
   else toast((r && r.error) || "保存失败","err");
 }
@@ -2730,7 +2835,6 @@ function tryExtractAndRenderRecommendations(text) {
     const buyLine = (b.match(/- \*\*购买建议\*\*：(.+)$/m) || [,""])[1];
     const aftersale = (buyLine.split("。")[1] || "").split("｜")[0].trim();
     const ship = (b.match(/预计(.+?)天内发货/) || [,""])[1];
-    const pid  = (b.match(/商品ID.+?`([^`]+)`/) || [,""])[1];
     // 0-10 评分（旧卡片）优先；现行 0-100 行（匹配 **90** · 性价比 **85** … 加粗分隔）
     const s10 = b.match(/适配度\s*\*?\*?([\d.]+)\*?\*?\s*·\s*性价比\s*\*?\*?([\d.]+)\*?\*?\s*·\s*综合推荐\s*\*?\*?([\d.]+)\*?\*?/);
     const s100 = b.match(/匹配\s*\*{0,2}(\d+).+?性价比\s*\*{0,2}(\d+).+?口碑\s*\*{0,2}(\d+).+?风险\s*\*{0,2}(\d+).+?时效\s*\*{0,2}(\d+).+?总分\s*\*{0,2}(\d+)/);
@@ -2740,7 +2844,7 @@ function tryExtractAndRenderRecommendations(text) {
       : (s100
         ? { match:+s100[1], value:+s100[2], rep:+s100[3], riskSafe:+s100[4], ship:+s100[5], total:+s100[6], adapt10:0,value10:0,total10:0 }
         : { match:0,value:0,rep:0,riskSafe:0,ship:0,total:0, adapt10:0,value10:0,total10:0 });
-    recs.push({ rank, name, platform, seller, finalPrice, origPrice, discount, goods, bads, risk, matchReason, aftersale, ship, pid, dataSource, score: s });
+    recs.push({ rank, name, platform, seller, finalPrice, origPrice, discount, goods, bads, risk, matchReason, aftersale, ship, dataSource, score: s });
   });
   if (!recs.length) return;
   $("#rec-empty").style.display = "none";
@@ -2749,7 +2853,7 @@ function tryExtractAndRenderRecommendations(text) {
   grid.innerHTML = recs.map(r => `
     <div class="rec-card">
       <div class="rank">${r.rank}</div>
-      <span class="platform">${r.platform || ""} · ${r.pid ? "<code style='background:var(--warn-bg);padding:1px 4px;border-radius:4px;'>" + r.pid + "</code>" : ""}</span>
+      <span class="platform">${r.platform || ""}</span>
       <h4>${r.name}</h4>
       <div class="price-line">
         <span class="final">¥${r.finalPrice}</span>
@@ -2773,7 +2877,6 @@ function tryExtractAndRenderRecommendations(text) {
       </div>
       <div style="display:flex;gap:6px;margin-top:12px;">
         <button class="btn primary sm" onclick="buyRec('${r.rank}')"><span class="material-symbols-outlined">shopping_cart</span> 买第${r.rank}款</button>
-        <button class="btn sm" onclick="toast('已复制商品ID：${r.pid}','ok')">复制ID</button>
       </div>
     </div>
   `).join("");
@@ -2788,7 +2891,6 @@ function buyRec(rank) {
 
 /* =============== 新手引导（仅首次） =============== */
 let _obStep = 1;
-let _obColor = null;
 let _obGender = null;
 let _obAvatarData = null;   // 引导期选择的头像 data URI，第 2 步保存时一并提交
 
@@ -2832,14 +2934,10 @@ function showOnboardStep(n){
             </label>
             <span class="help" id="ob-avatar-hint">不上传则按性别使用系统默认头像</span>
           </div>
-          <div class="help" style="margin-top:8px;">头像色：</div>
-          <div class="skin-dots" id="ob-colors" style="margin-top:4px;"></div>
         </div>
       </div>`;
     $("#ob-gender").innerHTML = UC_GENDERS.map(([v,label]) =>
       `<button class="${_obGender===v?"active":""}" onclick="obPickGender('${v}')">${label}</button>`).join("");
-    $("#ob-colors").innerHTML = UC_COLORS.map(([k,c,title]) =>
-      `<button class="skin-dot${k===color?" active":""}" style="--dot:${c}" title="${title}" onclick="obPickColor('${k}')"></button>`).join("");
     $("#ob-nickname").value = (_uc && _uc.nickname) || "";
     if (_obGender) obPickGender(_obGender);   // 已有性别时进入即预览对应默认头像
     $("#onboard-next").textContent = "保存并下一步";
@@ -2865,12 +2963,6 @@ function showOnboardStep(n){
     $("#onboard-next").textContent = "开始逛逛";
   }
 }
-function obPickColor(k){
-  _obColor = k;
-  const av = $("#ob-avatar");
-  if(av && !av.querySelector("img")) av.className = "uc-avatar " + k;
-  $$("#ob-colors .skin-dot").forEach((d,i) => d.classList.toggle("active", UC_COLORS[i] && UC_COLORS[i][0] === k));
-}
 function obPickGender(v){
   _obGender = v;
   $$("#ob-gender button").forEach(b => b.classList.toggle("active", b.textContent === (UC_GENDERS.find(g => g[0]===v)||["",""])[1]));
@@ -2880,7 +2972,7 @@ function obPickGender(v){
     if(av){
       const src = v === "male" ? "/resource/avatar_male.png" : v === "female" ? "/resource/avatar_female.png" : "";
       av.innerHTML = src ? '<img src="' + src + '" alt="">' : escapeHtml(((_uc&&_uc.nickname)||"用").charAt(0).toUpperCase());
-      if(!src) av.className = "uc-avatar " + ((_obColor || (_uc && _uc.avatar_color)) || "classic");
+      if(!src) av.className = "uc-avatar " + ((_uc && _uc.avatar_color) || "classic");
     }
   }
 }
@@ -2904,7 +2996,6 @@ async function onboardNext(){
   if(_obStep === 2){
     const nick = $("#ob-nickname") ? $("#ob-nickname").value : "";
     const payload = { nickname: nick,
-      avatar_color: _obColor || (_uc && _uc.avatar_color) || "classic",
       gender: _obGender || "" };
     if(_obAvatarData) payload.avatar_data = _obAvatarData;
     const r = await api("/api/usercenter","POST", payload);
@@ -2928,6 +3019,49 @@ function onboardSkip(){
   $("#onboard-mask").style.display = "none";
   loadLoginStates();
 }
+
+/* =============== 侧栏「使用贴士」轮播 =============== */
+const TIPS = [
+  '说 <code>买夏天连衣裙 200以内</code>，一句话启动选品到下单全流程',
+  '需求说不清也没关系，我会先追问关键问题再帮你搜',
+  '看中后说 <code>买第2款</code> 即可下单，下单前必二次确认',
+  '<code>换更便宜的</code>、<code>给我前5名</code>，随时调整推荐结果',
+  '上传商品截图，帮你找同款、做多图对比',
+  '长链接自动省略号显示，点击仍可正常跳转',
+  '查单：<code>我的订单</code>、<code>物流</code>、<code>售后 ODxxxx 尺码不合适</code>',
+  '想买先记进「购物清单」，想清楚随时回来开聊',
+  '右上角切换深浅模式，「用户中心」可换四套皮肤',
+  '「配置库」可扫码登录京东/淘宝，凭据绝不过手',
+];
+let _tipIdx = 0, _tipTimer = null;
+function showTip(i) {
+  const box = $("#tip-text"), dots = $("#tip-dots");
+  if (!box || !dots) return;
+  _tipIdx = (i + TIPS.length) % TIPS.length;
+  box.classList.add("fade");
+  setTimeout(() => {
+    box.innerHTML = TIPS[_tipIdx];
+    box.classList.remove("fade");
+  }, 350);
+  Array.from(dots.children).forEach((d, di) => d.classList.toggle("on", di === _tipIdx));
+}
+function restartTipTimer() {
+  clearInterval(_tipTimer);
+  _tipTimer = setInterval(() => showTip(_tipIdx + 1), 6000);
+}
+function initTipCarousel() {
+  const dots = $("#tip-dots");
+  if (!dots) return;
+  dots.innerHTML = TIPS.map(() => "<span></span>").join("");
+  Array.from(dots.children).forEach((d, di) =>
+    d.addEventListener("click", () => { showTip(di); restartTipTimer(); }));
+  showTip(0);
+  restartTipTimer();
+  const car = $("#tip-carousel");
+  car.addEventListener("mouseenter", () => clearInterval(_tipTimer));
+  car.addEventListener("mouseleave", restartTipTimer);
+}
+initTipCarousel();
 
 /* =============== 启动初始化 =============== */
 window.addEventListener("DOMContentLoaded", async () => {

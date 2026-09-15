@@ -493,7 +493,6 @@ class Recommender:
             # 商品链接
             if p.source_url:
                 lines.append(f"- **商品链接**：{p.source_url}")
-            lines.append(f"- **商品ID**：`{p.pid}`")
             lines.append("")
 
         # 横向对比
