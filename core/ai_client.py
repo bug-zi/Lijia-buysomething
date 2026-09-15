@@ -115,41 +115,69 @@ _cfg_lock = threading.RLock()
 _CFG: LLMConfig = LLMConfig()
 
 
+def _load_from_sources_into(cfg: LLMConfig, key_file: str) -> None:
+    """按优先级加载进指定配置对象：环境变量 > .env 文件 > key_file"""
+    api_key = os.getenv(ENV_API_KEY, "").strip()
+    base_url = os.getenv(ENV_BASE_URL, "").strip()
+    model = os.getenv(ENV_MODEL, "").strip()
+
+    # .env 文件（兼容，只是读取不写入）
+    env_path = os.path.join(BASE_DIR, ".env")
+    if not api_key and os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line: continue
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip('"').strip("'")
+                    if not api_key and k == ENV_API_KEY:   api_key = v
+                    if not base_url and k == ENV_BASE_URL: base_url = v
+                    if not model and k == ENV_MODEL:       model = v
+        except OSError:
+            pass
+
+    # 本地 json（用户给的 key 落这里；多账户时为 accounts/<用户名>/api_key.json）
+    stored = _safe_read_json(key_file)
+    if not api_key:  api_key  = str(stored.get("api_key", "") or "").strip()
+    if not base_url: base_url = str(stored.get("base_url", "") or "").strip()
+    if not model:    model    = str(stored.get("model", "") or "").strip()
+    provider = str(stored.get("provider", "") or "").strip()
+
+    cfg.api_key = api_key
+    cfg.base_url = base_url
+    cfg.model = model
+    cfg.provider = provider
+
+
 def _load_from_sources() -> None:
-    """按优先级加载：环境变量 > api_key.json > .env 文件（若存在）"""
-    global _CFG
     with _cfg_lock:
-        api_key = os.getenv(ENV_API_KEY, "").strip()
-        base_url = os.getenv(ENV_BASE_URL, "").strip()
-        model = os.getenv(ENV_MODEL, "").strip()
+        _load_from_sources_into(_CFG, KEY_FILE)
 
-        # .env 文件（兼容，只是读取不写入）
-        env_path = os.path.join(BASE_DIR, ".env")
-        if not api_key and os.path.exists(env_path):
-            try:
-                with open(env_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#") or "=" not in line: continue
-                        k, v = line.split("=", 1)
-                        k, v = k.strip(), v.strip().strip('"').strip("'")
-                        if not api_key and k == ENV_API_KEY:   api_key = v
-                        if not base_url and k == ENV_BASE_URL: base_url = v
-                        if not model and k == ENV_MODEL:       model = v
-            except OSError:
-                pass
 
-        # 本地 json（用户给的 key 落这里）
-        stored = _safe_read_json(KEY_FILE)
-        if not api_key:  api_key  = str(stored.get("api_key", "") or "").strip()
-        if not base_url: base_url = str(stored.get("base_url", "") or "").strip()
-        if not model:    model    = str(stored.get("model", "") or "").strip()
-        provider = str(stored.get("provider", "") or "").strip()
+_ACCT_CFG: Dict[str, LLMConfig] = {}   # 按账户的配置缓存（含各自成功/失败统计）
 
-        _CFG.api_key = api_key
-        _CFG.base_url = base_url
-        _CFG.model = model
-        _CFG.provider = provider
+
+def _key_file() -> str:
+    """Key 落盘路径：有当前账户上下文时用 accounts/<用户名>/api_key.json，否则项目根"""
+    from account_manager import current, data_dir
+    u = current()
+    return os.path.join(data_dir(), "api_key.json") if u else KEY_FILE
+
+
+def _cur() -> LLMConfig:
+    """当前生效配置对象：有账户上下文用该账户的（惰性加载），否则全局 _CFG"""
+    from account_manager import current, data_dir
+    u = current()
+    if not u:
+        return _CFG
+    with _cfg_lock:
+        c = _ACCT_CFG.get(u)
+        if c is None:
+            c = LLMConfig()
+            _load_from_sources_into(c, os.path.join(data_dir(), "api_key.json"))
+            _ACCT_CFG[u] = c
+        return c
 
 
 # 启动即加载一次；后续 set_api_key 会实时写回
@@ -159,7 +187,7 @@ _load_from_sources()
 def get_config() -> Dict[str, Any]:
     """给前端展示：只回传脱敏状态"""
     with _cfg_lock:
-        c = _CFG
+        c = _cur()
         return {
             "enabled": c.enabled,
             "provider": c.provider or (c.base_url and _infer_provider(c.base_url)),
@@ -225,32 +253,34 @@ def probe_and_set_api_key(api_key: str, base_url: str = "", model: str = "",
 
 
 def _write_and_apply(api_key: str, base_url: str, model: str, provider: str) -> None:
+    c = _cur()
     with _cfg_lock:
-        _CFG.api_key = api_key
-        _CFG.base_url = base_url.rstrip("/")
-        _CFG.model = model
-        _CFG.provider = provider
+        c.api_key = api_key
+        c.base_url = base_url.rstrip("/")
+        c.model = model
+        c.provider = provider
     data = {"api_key": api_key, "base_url": base_url.rstrip("/"), "model": model, "provider": provider,
             "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")}
-    _safe_write_json(KEY_FILE, data)
+    _safe_write_json(_key_file(), data)
 
 
 def clear_api_key() -> Dict[str, Any]:
-    """删除本地配置（环境变量若仍存在则依然优先使用环境变量）；并重置内存 _CFG（成功/失败计数清0）"""
+    """删除本地配置（环境变量若仍存在则依然优先使用环境变量）；并重置内存统计（成功/失败计数清0）"""
     try:
-        if os.path.exists(KEY_FILE): os.remove(KEY_FILE)
+        if os.path.exists(_key_file()): os.remove(_key_file())
     except OSError:
         pass
     with _cfg_lock:
+        c = _cur()
         # 先清零统计与错误（无论最终是环境变量还是空）
-        _CFG.success = 0
-        _CFG.fails = 0
-        _CFG.last_error = ""
+        c.success = 0
+        c.fails = 0
+        c.last_error = ""
         # 统一重新加载（如果环境变量里有 key，保持内存里那个值；否则清空）
-        _load_from_sources()
-        # 防御：若 _load_from_sources 因为环境变量不存在也没json，确保是干净的
-        if not _CFG.api_key and not os.getenv(ENV_API_KEY):
-            _CFG.api_key = _CFG.base_url = _CFG.model = _CFG.provider = ""
+        _load_from_sources_into(c, _key_file())
+        # 防御：若加载因为环境变量不存在也没json，确保是干净的
+        if not c.api_key and not os.getenv(ENV_API_KEY):
+            c.api_key = c.base_url = c.model = c.provider = ""
     return {"ok": True, "message": "本地 API Key 已删除。", "config": get_config()}
 
 
@@ -306,11 +336,12 @@ def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
       2) 读取 HTTP body 时用 r.read() 一次性读完（非流式），避免 urllib 在 chunked 下
          因 Content-Length 缺失而被上层过早解析为半截的问题。
     """
+    c = _cur()
     with _cfg_lock:
-        if not _CFG.enabled:
+        if not c.enabled:
             return None
-        api_key, base_url = _CFG.api_key, _CFG.base_url
-        use_model = (model or _CFG.model or "").strip()
+        api_key, base_url = c.api_key, c.base_url
+        use_model = (model or c.model or "").strip()
 
     url = base_url.rstrip("/") + "/chat/completions"
 
@@ -342,21 +373,21 @@ def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
                         if finish in ("length", "max_tokens") and json_mode:
                             # 疑似被截断，让上层用更大 max_tokens 重试
                             raise ValueError("finish_reason=length")
-                        with _cfg_lock: _CFG.success += 1
+                        with _cfg_lock: c.success += 1
                         return strip_emoji(content).strip()
                 except ValueError:
                     raise  # 上面 raise 的 finish=length 重抛
                 except Exception:
                     # 非 JSON 形态：直接返回原文（允许调用方自己解析）
                     pass
-                with _cfg_lock: _CFG.success += 1
+                with _cfg_lock: c.success += 1
                 return strip_emoji(text).strip() if text else ""
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", "ignore") if hasattr(e, "read") else ""
             err_msg = f"HTTP {e.code}: {_shorten(raw)}"
             with _cfg_lock:
-                _CFG.fails += 1
-                _CFG.last_error = f"{_CFG.masked_key()} | {err_msg}"
+                c.fails += 1
+                c.last_error = f"{c.masked_key()} | {err_msg}"
             # 400 且 max_tokens 相关，抛出给重试逻辑
             if e.code in (400, 422) and ("max_tokens" in raw or "max_output_tokens" in raw or "length" in raw):
                 raise ValueError("max_tokens_exceeded")
@@ -364,8 +395,8 @@ def chat_completion(messages: List[Dict[str, str]], *, temperature: float = 0.2,
         except Exception as e:
             err_msg = f"{type(e).__name__}: {_shorten(str(e))}"
             with _cfg_lock:
-                _CFG.fails += 1
-                _CFG.last_error = f"{_CFG.masked_key()} | {err_msg}"
+                c.fails += 1
+                c.last_error = f"{c.masked_key()} | {err_msg}"
             # ValueError("finish_reason=length") 让外层能重试
             if isinstance(e, ValueError) and "length" in str(e):
                 raise
@@ -623,10 +654,11 @@ def vision_completion(prompt: str, image_data_list: List[str], *,
     返回纯文本响应，失败返回 None（上层回退到规则提示）。
     会自动切换到当前 provider 对应的视觉模型（如智谱 glm-4-flash → glm-4v-flash）。
     """
+    c = _cur()
     with _cfg_lock:
-        if not _CFG.enabled:
+        if not c.enabled:
             return None
-        api_key, base_url, model = _CFG.api_key, _CFG.base_url, _CFG.model
+        api_key, base_url, model = c.api_key, c.base_url, c.model
 
     # 自动切换到视觉模型：当前 model 不含 'v'/'vl'/'vision' 时，按 provider 映射
     vision_model = _pick_vision_model(base_url, model)
@@ -659,14 +691,14 @@ def vision_completion(prompt: str, image_data_list: List[str], *,
             if choices:
                 content_text = (choices[0].get("message", {}) or {}).get("content", "")
                 with _cfg_lock:
-                    _CFG.success += 1
+                    c.success += 1
                 return strip_emoji(content_text).strip()
             return None
     except Exception as e:
         err_msg = f"{type(e).__name__}: {_shorten(str(e))}"
         with _cfg_lock:
-            _CFG.fails += 1
-            _CFG.last_error = f"{_CFG.masked_key()} | vision: {err_msg}"
+            c.fails += 1
+            c.last_error = f"{c.masked_key()} | vision: {err_msg}"
         return None
 
 

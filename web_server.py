@@ -50,80 +50,94 @@ from recommender import Recommender  # noqa: E402  会话工厂重建推荐器�
 import ai_client  # noqa: E402  安全配置 & LLM 调用（key永远不回传前端）
 from product_searcher import save_scrape_cache  # noqa: E402  Trae 浏览器桥接缓存写入
 import config_store  # noqa: E402  配置库：网站登录态管理
-import session_store  # noqa: E402  会话持久化（chat_sessions.json）
+import session_store  # noqa: E402  会话持久化（chat_sessions.json，路径随账户上下文）
 import user_center  # noqa: E402  用户中心：账户信息与偏好
-from shopping_list import shopping_list  # noqa: E402  购物清单单例（购买前需求池）
+from shopping_list import shopping_list  # noqa: E402  购物清单单例（购买前需求池；内部按上下文切换文件）
+import account_manager  # noqa: E402  本地多账户：注册/登录/token 与数据目录上下文
 
 DEFAULT_PORT = 8765
 INDEX_FILE = os.path.join(BASE_DIR, "index.html")
 RESOURCE_DIR = os.path.join(BASE_DIR, "resource")
 
-# ---------- 多会话注册表 ----------
-# 每个会话一个 ChatSession 实例（7 个会话态字段互相独立，随聊天持久化到 chat_sessions.json）；
-# profile/orders/cart 各模块自带 JSON 持久化，属全局共享——所有会话实例共用同一组管理器，保持原单会话语义。
-# ACTIVE_SESSION_ID：当前激活会话（老前端/不带 session_id 的请求都落到它）。
-SESSION_LOCK = threading.Lock()          # 元锁：只保护 SESSIONS/ACTIVE_SESSION_ID 与锁表（毫秒级持有，绝不裹真实抓取）
-SESSIONS: Dict[str, ChatSession] = {}    # 内存中的会话实例（按需懒加载/恢复）
-ACTIVE_SESSION_ID: Optional[str] = None  # 启动时从 chat_sessions.json 恢复
+# ---------- 多会话注册表（按账户隔离） ----------
+# SESSIONS/_SESSION_LOCKS 键 = "用户名:会话id"；每账户激活会话由其自己的 chat_sessions.json(active_id) 承载；
+# _SHARED 为每账户的共享管理器宿主（profile/orders/cart 三模块自带 JSON 持久化，按账户目录隔离）。
+SESSION_LOCK = threading.Lock()          # 元锁：只保护 SESSIONS/_SHARED 与锁表（毫秒级持有，绝不裹真实抓取）
+SESSIONS: Dict[str, ChatSession] = {}    # 内存中的会话实例（键 "用户名:会话id"，按需懒加载/恢复）
 _SESSION_LOCKS: Dict[str, threading.Lock] = {}  # 每会话锁：串行化同一会话 ChatSession 的长耗时操作（互不影响其他会话）
 _BROWSER_LOCK = threading.Lock()         # 全局浏览器锁：真实抓取共享同一浏览器 profile，必须全局串行
 _CANCEL_FLAGS: Dict[str, bool] = {}      # 取消发送登记：request_id → True（被原请求消费即删）
 _CANCEL_LOCK = threading.Lock()
-
-# 全局共享的管理器宿主：各会话实例只借用它的 profile/orders/cart（三模块自带 JSON 持久化）
-_SHARED = ChatSession()
+_SHARED: Dict[str, ChatSession] = {}     # 每账户的共享管理器宿主（键=用户名，惰性创建）
 
 
-def _new_chat_session() -> ChatSession:
-    """会话工厂：新 ChatSession 挂上全局共享的档案/订单/购物车管理器，并重建推荐器绑定"""
+def _new_chat_session(user: str) -> ChatSession:
+    """会话工厂：挂上该账户共享的档案/订单/购物车管理器，并重建推荐器绑定"""
+    shared = _shared_for(user)
     cs = ChatSession()
-    cs.profile = _SHARED.profile
-    cs.orders = _SHARED.orders
-    cs.cart = _SHARED.cart
+    cs.profile = shared.profile
+    cs.orders = shared.orders
+    cs.cart = shared.cart
     cs.recommender = Recommender(cs.profile, cs.searcher)
     return cs
 
 
+def _shared_for(user: str) -> ChatSession:
+    """每账户的共享管理器宿主（须持有 SESSION_LOCK 调用；构造期间临时切到该账户上下文）"""
+    cs = _SHARED.get(user)
+    if cs is None:
+        account_manager.set_current(user)
+        try:
+            cs = ChatSession()
+        finally:
+            account_manager.set_current(None)
+        _SHARED[user] = cs
+    return cs
+
+
 def _ensure_default_session() -> str:
-    """保证存在激活会话（须持有 SESSION_LOCK 调用）：无则新建「默认会话」"""
-    global ACTIVE_SESSION_ID
+    """保证当前账户存在激活会话（须持有 SESSION_LOCK 调用；账户上下文已由请求分发设置）"""
     lst = session_store.list_sessions()
     if lst:
-        ids = {s["id"] for s in lst}
-        if ACTIVE_SESSION_ID not in ids:
-            ACTIVE_SESSION_ID = lst[0]["id"]
-            session_store.set_active_id(ACTIVE_SESSION_ID)
-        return ACTIVE_SESSION_ID
+        aid = session_store.get_active_id()
+        if aid not in {s["id"] for s in lst}:
+            aid = lst[0]["id"]
+            session_store.set_active_id(aid)
+        return aid
     s = session_store.create_session("默认会话")
-    ACTIVE_SESSION_ID = s["id"]
     return s["id"]
 
 
 def _chat(session_id: str = "") -> Tuple[str, ChatSession]:
-    """取指定/激活会话（须持有 SESSION_LOCK 调用）。
+    """取当前账户的指定/激活会话（须持有 SESSION_LOCK 调用）。
     内存没有则新建并 restore_state；会话不存在（已被删）回退默认会话。返回 (会话id, 实例)"""
-    sid = (session_id or "").strip() or ACTIVE_SESSION_ID or ""
+    user = account_manager.current() or ""
+    prefix = user + ":"
+    sid = (session_id or "").strip() or session_store.get_active_id() or ""
     if sid and session_store.get_session(sid) is None:
         sid = ""
     if not sid:
         sid = _ensure_default_session()
-    cs = SESSIONS.get(sid)
+    key = prefix + sid
+    cs = SESSIONS.get(key)
     if cs is None:
-        cs = _new_chat_session()
+        cs = _new_chat_session(user)
         meta = session_store.get_session(sid, with_state=True) or {}
         if meta.get("state"):
             cs.restore_state(meta["state"])
-        SESSIONS[sid] = cs
+        SESSIONS[key] = cs
     return sid, cs
 
 
 def _lock_for(sid: str) -> threading.Lock:
-    """取会话专属锁（须先用元锁注册会话）：同一会话的聊天/搜索串行，不同会话互不阻塞"""
+    """会话专属锁：按「账户:会话」隔离（须先用元锁注册）：同一会话串行，不同会话互不阻塞"""
+    user = account_manager.current() or ""
+    key = user + ":" + sid
     with SESSION_LOCK:
-        lk = _SESSION_LOCKS.get(sid)
+        lk = _SESSION_LOCKS.get(key)
         if lk is None:
             lk = threading.Lock()
-            _SESSION_LOCKS[sid] = lk
+            _SESSION_LOCKS[key] = lk
         return lk
 
 
@@ -141,7 +155,7 @@ def json_response(handler, status: int, payload: dict):
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -158,6 +172,14 @@ def html_response(handler, status: int, body_bytes: bytes):
 class ShoppingHandler(BaseHTTPRequestHandler):
     server_version = "ShoppingAgent/1.0"
 
+    # ---------- 多账户鉴权 ----------
+    def _auth_token(self) -> str:
+        return (self.headers.get("X-Auth-Token") or "").strip()
+
+    def _authenticate(self) -> Optional[dict]:
+        tok = self._auth_token()
+        return account_manager.ACCOUNTS.resolve(tok) if tok else None
+
     # ---------- 基础 ----------
     def log_message(self, format, *args):
         """安静模式：默认打印会刷屏"""
@@ -167,7 +189,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Auth-Token")
         self.end_headers()
 
     def _read_body(self) -> dict:
@@ -188,17 +210,22 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         if path == "" or path == "/":
             self._serve_index()
             return
+        # ---------- 多账户鉴权（auth/health/静态资源公开，其余需 token） ----------
+        user = self._authenticate()
         if path == "/api/health":
-            with SESSION_LOCK:
-                _sid, cs = _chat()
-                snap = cs.snapshot()
-            json_response(self, 200, {
-                "ok": True, "name": "ShoppingAgent Web", "version": "1.0",
-                "cart_count": snap.get("cart_count", 0),
-                "list_pending": shopping_list.pending_count(),
-                "data_source_blocked": snap.get("data_source_blocked", False),
-            })
+            self._api_health(user)
             return
+        if path == "/api/auth/me":
+            if user is None:
+                json_response(self, 401, {"ok": False, "error": "未登录"})
+                return
+            json_response(self, 200, {"ok": True, "user": user})
+            return
+        is_public = path == "/index.html" or path.startswith("/resource/")
+        if user is None and not is_public:
+            json_response(self, 401, {"ok": False, "error": "未登录"})
+            return
+        account_manager.set_current(user["username"] if user else None)
         if path == "/api/sessions":
             self._api_sessions_get()
             return
@@ -248,6 +275,23 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         body = self._read_body()
+
+        # ---------- 多账户鉴权（register/login/logout 公开或自带凭据，其余需 token） ----------
+        if path == "/api/auth/register":
+            self._api_auth_register(body)
+            return
+        if path == "/api/auth/login":
+            self._api_auth_login(body)
+            return
+        if path == "/api/auth/logout":
+            account_manager.ACCOUNTS.logout(self._auth_token())
+            json_response(self, 200, {"ok": True})
+            return
+        user = self._authenticate()
+        if user is None:
+            json_response(self, 401, {"ok": False, "error": "未登录"})
+            return
+        account_manager.set_current(user["username"])
 
         if path == "/api/chat":
             self._api_chat(body)
@@ -302,6 +346,11 @@ class ShoppingHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        user = self._authenticate()
+        if user is None:
+            json_response(self, 401, {"ok": False, "error": "未登录"})
+            return
+        account_manager.set_current(user["username"])
         if path.startswith("/api/cart/"):
             idx = unquote(path[len("/api/cart/"):])
             with SESSION_LOCK:
@@ -318,6 +367,45 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         json_response(self, 404, {"ok": False, "error": "Not Found"})
 
     # ---------- API 实现 ----------
+    def _api_health(self, user: Optional[dict]):
+        """探活：未登录只回基础信息；登录后附带该账户的购物车/清单计数"""
+        payload = {"ok": True, "name": "ShoppingAgent Web", "version": "1.0"}
+        if user:
+            account_manager.set_current(user["username"])
+            try:
+                with SESSION_LOCK:
+                    _sid, cs = _chat()
+                    snap = cs.snapshot()
+                payload.update({
+                    "cart_count": snap.get("cart_count", 0),
+                    "list_pending": shopping_list.pending_count(),
+                    "data_source_blocked": snap.get("data_source_blocked", False),
+                })
+            finally:
+                account_manager.set_current(None)
+        json_response(self, 200, payload)
+
+    def _api_auth_register(self, body: dict):
+        first = account_manager.ACCOUNTS.is_empty()
+        r = account_manager.ACCOUNTS.register(str(body.get("username") or ""),
+                                              str(body.get("email") or ""),
+                                              str(body.get("password") or ""))
+        if not r.get("ok"):
+            json_response(self, 200, {"ok": False, "error": r.get("error", "注册失败")})
+            return
+        if first:
+            moved = account_manager.migrate_legacy_into(r["username"])
+            print(f"[accounts] 首个账户 {r['username']} 注册，继承存量数据 {len(moved)} 个文件")
+        json_response(self, 200, {"ok": True, "token": r["token"], "username": r["username"]})
+
+    def _api_auth_login(self, body: dict):
+        r = account_manager.ACCOUNTS.login(str(body.get("username") or ""),
+                                           str(body.get("password") or ""))
+        if not r.get("ok"):
+            json_response(self, 200, {"ok": False, "error": r.get("error", "登录失败")})
+            return
+        json_response(self, 200, {"ok": True, "token": r["token"], "username": r["username"]})
+
     def _api_chat(self, body: dict):
         msg = str(body.get("message") or "").strip()
         if not msg:
@@ -389,17 +477,16 @@ class ShoppingHandler(BaseHTTPRequestHandler):
     # ---------- 多会话管理 ----------
     def _api_sessions_get(self):
         with SESSION_LOCK:
-            active = ACTIVE_SESSION_ID
+            active = session_store.get_active_id()
         json_response(self, 200, {"ok": True, "sessions": session_store.list_sessions(),
                                   "active_id": active})
 
     def _api_sessions_post(self, body: dict):
-        global ACTIVE_SESSION_ID
         title = str(body.get("title") or "").strip() or "新会话"
+        user = account_manager.current() or ""
         with SESSION_LOCK:
             s = session_store.create_session(title)
-            ACTIVE_SESSION_ID = s["id"]
-            SESSIONS[s["id"]] = _new_chat_session()   # 预建空实例
+            SESSIONS[user + ":" + s["id"]] = _new_chat_session(user)   # 预建空实例
         json_response(self, 200, {"ok": True, "session": s, "active_id": s["id"],
                                   "sessions": session_store.list_sessions()})
 
@@ -409,7 +496,7 @@ class ShoppingHandler(BaseHTTPRequestHandler):
             json_response(self, 404, {"ok": False, "error": "会话不存在"})
             return
         with SESSION_LOCK:
-            meta["active_id"] = ACTIVE_SESSION_ID
+            meta["active_id"] = session_store.get_active_id()
         json_response(self, 200, dict(ok=True, **meta))
 
     def _api_session_rename(self, sid: str, body: dict):
@@ -423,31 +510,29 @@ class ShoppingHandler(BaseHTTPRequestHandler):
         json_response(self, 200, {"ok": True, "sessions": session_store.list_sessions()})
 
     def _api_session_switch(self, sid: str):
-        global ACTIVE_SESSION_ID
         with SESSION_LOCK:
             if session_store.get_session(sid) is None:
                 json_response(self, 404, {"ok": False, "error": "会话不存在"})
                 return
-            ACTIVE_SESSION_ID = sid
             session_store.set_active_id(sid)
             _chat(sid)   # 确保该会话已加载并 restore_state
         json_response(self, 200, {"ok": True, "active_id": sid})
 
     def _api_session_delete(self, sid: str):
-        global ACTIVE_SESSION_ID
+        user = account_manager.current() or ""
         with SESSION_LOCK:
             if not session_store.delete_session(sid):
                 json_response(self, 404, {"ok": False, "error": "会话不存在"})
                 return
-            SESSIONS.pop(sid, None)   # 释放内存实例
-            _SESSION_LOCKS.pop(sid, None)  # 回收会话锁
+            SESSIONS.pop(user + ":" + sid, None)   # 释放内存实例
+            _SESSION_LOCKS.pop(user + ":" + sid, None)  # 回收会话锁
             # 删除的是激活会话时，session_store 已切到最近一个；这里同步并保证有可用会话
-            ACTIVE_SESSION_ID = session_store.get_active_id()
-            if not ACTIVE_SESSION_ID:
-                ACTIVE_SESSION_ID = _ensure_default_session()
+            aid = session_store.get_active_id()
+            if not aid:
+                aid = _ensure_default_session()
             else:
-                _chat(ACTIVE_SESSION_ID)   # 预加载新激活会话
-        json_response(self, 200, {"ok": True, "active_id": ACTIVE_SESSION_ID,
+                _chat(aid)   # 预加载新激活会话
+        json_response(self, 200, {"ok": True, "active_id": aid,
                                   "sessions": session_store.list_sessions()})
 
     def _api_profile_get(self):
@@ -917,13 +1002,9 @@ def run(port: int = DEFAULT_PORT, open_browser: bool = True):
         httpd.server_close()
 
 
-# ---------- 启动准备（import 时执行，不启动服务）----------
-# 从 chat_sessions.json 恢复激活会话；无会话则自动建「默认会话」，保证老前端/无参数请求兼容。
-try:
-    with SESSION_LOCK:
-        _ensure_default_session()
-except Exception as _e:
-    print(f"会话存储初始化失败（不影响服务启动）：{_e}")
+# ---------- 启动准备 ----------
+# 多账户模式下每账户的默认会话在首个鉴权请求时按需惰性创建（_ensure_default_session），
+# 导入期不再触碰任何数据文件。
 
 
 if __name__ == "__main__":

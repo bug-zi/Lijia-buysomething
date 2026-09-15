@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 会话持久化存储（模块：session_store）
-- 管理 chat_sessions.json（存项目根目录，文件名固定）
+- 管理 chat_sessions.json（路径随当前账户上下文：accounts/<用户名>/，无上下文=项目根）
 - 结构：{"sessions": {id: {"id","title","created_at","updated_at","messages":[...],"state":{...}}}, "active_id": ...}
 - 线程安全（threading.Lock）+ 原子写（临时文件 + os.replace），UTF-8
 - 只提供本范围 API，不做额外抽象
@@ -17,6 +17,13 @@ from typing import Any, Dict, List, Optional
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 SESSIONS_FILE = os.path.join(BASE_DIR, "chat_sessions.json")
+
+
+def _file() -> str:
+    """数据文件路径：有当前账户上下文时用 accounts/<用户名>/chat_sessions.json，否则项目根"""
+    from account_manager import current, data_dir
+    u = current()
+    return os.path.join(data_dir(), "chat_sessions.json") if u else SESSIONS_FILE
 
 _LOCK = threading.Lock()
 
@@ -36,10 +43,10 @@ def _empty() -> Dict[str, Any]:
 
 def _read() -> Dict[str, Any]:
     """读取整个存储（文件缺失/损坏时返回空结构；损坏文件备份为 .broken）"""
-    if not os.path.exists(SESSIONS_FILE):
+    if not os.path.exists(_file()):
         return _empty()
     try:
-        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+        with open(_file(), "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return _empty()
@@ -50,7 +57,7 @@ def _read() -> Dict[str, Any]:
         return data
     except Exception:
         try:
-            os.replace(SESSIONS_FILE, SESSIONS_FILE + ".broken")
+            os.replace(_file(), _file() + ".broken")
         except Exception:
             pass
         return _empty()
@@ -58,10 +65,10 @@ def _read() -> Dict[str, Any]:
 
 def _write(data: Dict[str, Any]) -> None:
     """原子写：先写临时文件再 os.replace，避免写一半损坏"""
-    tmp = SESSIONS_FILE + ".tmp"
+    tmp = _file() + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, SESSIONS_FILE)
+    os.replace(tmp, _file())
 
 
 def _summary(s: Dict[str, Any]) -> Dict[str, Any]:

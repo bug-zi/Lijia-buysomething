@@ -34,6 +34,7 @@ class ShoppingRequest:
     purpose: str = ""                       # 用途
     is_adjustment: bool = False             # 是否为对上次推荐的修改
     target_rank: Optional[int] = None       # 指向"第X款"
+    rank_buy_intent: bool = False           # 「买第X款」强意图（规则短路判定，LLM 不参与、不得覆盖）
     needs_clarify: List[str] = field(default_factory=list)  # 待追问的信息点
     top_n: Optional[int] = None             # 用户指定的最终输出条数（如"排名前5"），None=默认TOP3
     per_platform_n: Optional[int] = None    # 用户指定的每平台候选条数（如"各筛前4名"）
@@ -182,6 +183,12 @@ class RequestParser:
               history: Optional[List[Dict[str, str]]] = None) -> ShoppingRequest:
         # 1) 先走规则引擎得到稳定结构
         req = self._parse_rules(text)
+
+        # 1.5)「买第X款」强意图短路：目标已完全确定（上次推荐第X款），
+        #      跳过 LLM 增强与档案默认预算回填——否则 LLM 会按历史上下文
+        #      脑补出 query/品类/预算等字段，令上层「其他字段全空」的下单路由失效
+        if req.rank_buy_intent:
+            return req
 
         # 2) 尝试 LLM 补充（可选），失败完全不影响结果
         if parse_shopping_request_with_llm is not None:
@@ -360,6 +367,7 @@ class RequestParser:
         )
         if buy_first:
             req.target_rank = self._parse_rank(t)
+            req.rank_buy_intent = True
             return req
 
         # 1) 预算解析："200以内 / 300块以下 / 100到200 / 预算500 / ≤300 / 200-300元 / 预算升到300"

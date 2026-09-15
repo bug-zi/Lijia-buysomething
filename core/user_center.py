@@ -17,6 +17,13 @@ import threading
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # core/ 的上级 = 项目根（数据文件仍存根目录）
 UC_FILE = os.path.join(BASE_DIR, "user_center.json")
 
+
+def _file() -> str:
+    """数据文件路径：有当前账户上下文时用 accounts/<用户名>/user_center.json，否则项目根"""
+    from account_manager import current, data_dir
+    u = current()
+    return os.path.join(data_dir(), "user_center.json") if u else UC_FILE
+
 AVATAR_COLORS = ("classic", "sakura", "forest", "sunset", "slate")
 FONT_SIZES = ("small", "medium", "large", "xlarge")
 FONT_FAMILIES = ("default", "song", "kai")
@@ -30,6 +37,7 @@ DEFAULTS = {
     "avatar_color": "classic",
     "gender": "",
     "avatar": "",
+    "onboarded": False,
     "prefs": {"font_size": "medium", "font_family": "default",
               "browser_popup": "popup", "persona": "default"},
 }
@@ -40,7 +48,7 @@ _lock = threading.RLock()
 
 def _load_raw() -> dict:
     try:
-        with open(UC_FILE, "r", encoding="utf-8") as f:
+        with open(_file(), "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -49,7 +57,7 @@ def _load_raw() -> dict:
 
 def _save_raw(data: dict) -> None:
     try:
-        with open(UC_FILE, "w", encoding="utf-8") as f:
+        with open(_file(), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except OSError:
         pass
@@ -88,6 +96,7 @@ def load() -> dict:
             "avatar_color": data.get("avatar_color") if data.get("avatar_color") in AVATAR_COLORS else DEFAULTS["avatar_color"],
             "gender": data.get("gender") if data.get("gender") in GENDERS else "",
             "avatar": _safe_avatar(data.get("avatar")),
+            "onboarded": bool(data.get("onboarded")),
             "prefs": _norm_prefs(data.get("prefs")),
         }
         if not str(data.get("user_id") or "").strip():
@@ -107,6 +116,8 @@ def save(patch: dict) -> dict:
             cur["gender"] = patch.get("gender") if patch.get("gender") in GENDERS else ""
         if "avatar" in patch:
             cur["avatar"] = _safe_avatar(patch.get("avatar"))
+        if "onboarded" in patch:
+            cur["onboarded"] = patch.get("onboarded") is True
         prefs = patch.get("prefs")
         if isinstance(prefs, dict):
             for key, allowed in (("font_size", FONT_SIZES),

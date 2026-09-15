@@ -413,6 +413,8 @@ class Recommender:
                     if p.review.good_points or p.review.bad_points
                 ]
                 if tasks:
+                    import account_manager as _am
+
                     def _worker(tup):
                         i, p = tup
                         try:
@@ -423,7 +425,7 @@ class Recommender:
                         except Exception:
                             return (i, None)
                     with _cf.ThreadPoolExecutor(max_workers=min(3, len(tasks))) as ex:
-                        futs = [ex.submit(_worker, t) for t in tasks]
+                        futs = [ex.submit(_am.bound(_worker), t) for t in tasks]
                         try:
                             for fut in _cf.as_completed(futs, timeout=7):
                                 i, s = fut.result()
@@ -515,6 +517,7 @@ class Recommender:
         try:
             if _AI_AVAILABLE and polish_recommendation_with_llm is not None and products:
                 import concurrent.futures as _cf
+                import account_manager as _am
                 # 把 items 序列化为 dict 传进去
                 items_dict = []
                 for i, (p, s) in enumerate(zip(products, scores), 1):
@@ -539,7 +542,7 @@ class Recommender:
                         },
                     })
                 with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(polish_recommendation_with_llm,
+                    fut = ex.submit(_am.bound(polish_recommendation_with_llm),
                                     items_dict, (profile_snapshot or {}))
                     try:
                         polished = fut.result(timeout=10)

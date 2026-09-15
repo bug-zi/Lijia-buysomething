@@ -23,6 +23,7 @@ from order_manager import OrderManager, Order, LogisticsEvent
 from request_parser import RequestParser, ShoppingRequest
 from virtual_cart import VirtualCart
 from shopping_list import shopping_list
+from account_manager import data_dir
 
 # 视觉多模态分析（可选，未配置 API Key 时回退提示）
 try:
@@ -52,13 +53,14 @@ class ChatSession:
     )
 
     def __init__(self):
-        self.profile = ProfileManager()
+        ddir = data_dir()   # 按当前账户上下文取数据目录（无上下文=项目根，行为不变）
+        self.profile = ProfileManager(os.path.join(ddir, "user_profile.json"))
         self.searcher = ProductSearcher(use_mock=False)   # 默认开启真实抓取尝试（失败自动回退 Mock）
         self.recommender = Recommender(self.profile, self.searcher)
-        self.orders = OrderManager(self.profile)
+        self.orders = OrderManager(self.profile, orders_file=os.path.join(ddir, "orders.json"))
         self.parser = RequestParser()
-        self.cart = VirtualCart()
-        self.shopping_list = shopping_list   # 购物清单单例（跨会话共享的需求池）
+        self.cart = VirtualCart(file_path=os.path.join(ddir, "virtual_cart.json"))
+        self.shopping_list = shopping_list   # 购物清单单例（跨会话共享的需求池；内部按上下文切换文件）
         # 会话上下文
         self._collecting_profile = False     # 是否处于分批建档模式
         self._last_request: Optional[ShoppingRequest] = None  # 上一次搜索请求（用于增量调整）
@@ -172,10 +174,13 @@ class ChatSession:
         req = self.parser.parse(text, profile=profile_dict, previous=self._last_request,
                                 history=self._history)
 
-        # 4.1 指向第几款购买（强意图优先级最高，解析器已做短路处理，这里仅需判断target_rank非空且其他字段为空）
-        if req.target_rank is not None and not (req.keyword or req.require_tags or req.exclude_tags or
-                                                req.price_max is not None or req.price_min is not None or
-                                                req.platforms or req.category):
+        # 4.1 指向第几款购买（强意图优先级最高）：buy_first 短路需求已在 parse() 内
+        #     挡住 LLM/档案回填污染；LLM 单独识别出 target_rank 且无其他字段时同样走下单
+        strong_rank = req.rank_buy_intent or not (
+            req.keyword or req.require_tags or req.exclude_tags or
+            req.price_max is not None or req.price_min is not None or
+            req.platforms or req.category)
+        if req.target_rank is not None and strong_rank:
             return self._flow_confirm_buy(text, req.target_rank)
 
         # 4.2 如果是调整意见，叠加上次请求

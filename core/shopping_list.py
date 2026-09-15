@@ -38,6 +38,19 @@ class ShoppingList:
         self.file_path = file_path
         self.items: List[ListItem] = self._load()
 
+    def _file(self) -> str:
+        """数据文件路径：有当前账户上下文时用 accounts/<用户名>/shopping_list.json，否则项目根"""
+        from account_manager import current, data_dir
+        u = current()
+        return os.path.join(data_dir(), "shopping_list.json") if u else self.file_path
+
+    def _ensure(self) -> None:
+        """账户上下文切换后惰性重载（单例跨账户复用同一实例）"""
+        f = self._file()
+        if f != self.file_path:
+            self.file_path = f
+            self.items = self._load()
+
     def _load(self) -> List[ListItem]:
         if os.path.exists(self.file_path):
             try:
@@ -59,6 +72,7 @@ class ShoppingList:
 
     def add(self, content: str) -> str:
         """添加需求；与现有待处理条目完全同文则不重复添加"""
+        self._ensure()
         content = (content or "").strip()
         if not content:
             return "需求内容不能为空。用法：`记到清单：想买的东西或想解决的问题`"
@@ -72,6 +86,7 @@ class ShoppingList:
                 "想开始选购时，到侧边栏「购物清单」页点该条的「去推荐」。")
 
     def remove(self, index: int) -> str:
+        self._ensure()
         if 1 <= index <= len(self.items):
             it = self.items.pop(index - 1)
             self._save()
@@ -79,6 +94,7 @@ class ShoppingList:
         return f"清单没有第{index}项（当前共{len(self.items)}项）"
 
     def toggle_done(self, index: int) -> str:
+        self._ensure()
         if 1 <= index <= len(self.items):
             it = self.items[index - 1]
             it.done = not it.done
@@ -88,21 +104,25 @@ class ShoppingList:
         return f"清单没有第{index}项"
 
     def clear_done(self) -> str:
+        self._ensure()
         n = sum(1 for it in self.items if it.done)
         self.items = [it for it in self.items if not it.done]
         self._save()
         return f"已清空{n}项已完成条目。"
 
     def clear(self) -> str:
+        self._ensure()
         n = len(self.items)
         self.items.clear()
         self._save()
         return f"已清空购物清单（共{n}项）。"
 
     def pending_count(self) -> int:
+        self._ensure()
         return sum(1 for it in self.items if not it.done)
 
     def list_text(self) -> str:
+        self._ensure()
         if not self.items:
             return ("购物清单为空。想到想买的随时记下来：\n"
                     "· 对话里说 `记到清单：xxx`\n"
@@ -118,6 +138,7 @@ class ShoppingList:
         return "\n".join(lines)
 
     def to_list(self) -> List[Dict[str, Any]]:
+        self._ensure()
         return [it.to_dict() for it in self.items]
 
 

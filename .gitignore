@@ -15,3 +15,6 @@ scrape_cache.json
 virtual_cart.json
 login_state.json
 user_center.json
+shopping_list.json
+accounts.json
+accounts/

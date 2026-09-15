@@ -880,7 +880,10 @@ class ProductSearcher:
 
 # ========== 持久化（搜索历史缓存，便于展示） ==========
 def save_search_history(query: str, products: List[Product]) -> None:
-    cache_file = os.path.join(BASE_DIR, "search_history.json")
+    from account_manager import current, data_dir
+    u = current()
+    cache_file = (os.path.join(data_dir(), "search_history.json") if u
+                  else os.path.join(BASE_DIR, "search_history.json"))
     history: Dict[str, Any] = {}
     if os.path.exists(cache_file):
         try:
