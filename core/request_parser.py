@@ -20,6 +20,18 @@ except Exception:
     generate_clarify_questions_with_llm = None
 
 
+# 疑问信号（上下文追问/对比/评价咨询）。单一来源：shopping_agent._QA_QUESTION_RE 引用本对象
+QUESTION_RE = re.compile(
+    r"[??]|为什么|哪个|哪些|怎么|怎么样|好不好|值不值|划算|值得吗|多少|有没有|能不能|可不可以|区别|差别|对比|理由|合适吗|好吗|行吗")
+
+# 新需求硬标志两件套：句首购买/求购动词，或句中「推荐/搜一下/找」类措辞。
+# 命中且能落到品类/关键词 → 即使是问句也视为新购物需求（硬标志优先级高于疑问信号）
+_HARD_BUY_RE = re.compile(
+    r"^\s*(?:我|帮我|帮忙|请|麻烦)?\s*(?:想|要|打算|准备|计划|需要)?\s*"
+    r"(?:购买|买|求购|来点|来一份|想吃|想喝|搜一下|搜索|查一下|找个|找款)")
+_SOFT_DEMAND_RE = re.compile(r"推荐|搜一下|搜索|来点|想买|求")
+
+
 @dataclass
 class ShoppingRequest:
     """结构化购物需求"""
@@ -39,6 +51,8 @@ class ShoppingRequest:
     top_n: Optional[int] = None             # 用户指定的最终输出条数（如"排名前5"），None=默认TOP3
     per_platform_n: Optional[int] = None    # 用户指定的每平台候选条数（如"各筛前4名"）
     size: Optional[str] = None              # 尺码/鞋码（"42码"→"42"）
+    intent: Optional[str] = None            # 意图速判：buy_rank/qa/adjust/new_search；None=灰区待终判
+    search_keywords: Optional[str] = None   # LLM 产出的搜索框查询串（过校验才收）；None=搜索时由组装器现场拼
 
     def summary(self) -> str:
         parts = []
@@ -67,6 +81,59 @@ _COLOR_WORDS = ["白色", "米白", "黑色", "粉色", "红色", "蓝色", "绿
 # 「不要这种带有黑色元素的」这类展开句式里，属性词（黑色）位于否定段内，
 # 不得被要求扫描误收、不得残留在搜索关键词里
 _NEG_SCOPE_RE = re.compile(r"(不要|讨厌|避开|避雷|不想要|别要|避免)\s*[一-龥A-Za-z0-9]{0,8}")
+
+# ---------- 搜索框查询串：校验与组装（design 第14轮：正向可搜属性进框提召回，否定约束只进硬过滤） ----------
+_QUERY_NEG_RE = re.compile(r"不要|别要|不想要|讨厌|避开|避雷|避免")
+_QUERY_BUDGET_RE = re.compile(r"预算|升到|加到|提到|降到|调到|以内|以下|以上|左右|封顶|不超")
+_QUERY_REF_RE = re.compile(r"第\s*[一二三四五六七八九十\d]+\s*[款个号]")
+
+
+def _query_has_bare_number(q: str) -> bool:
+    """独立数字碎片（预算/条数残渣）检测：「42码」「42.5码」及带字母单位（ml/g）放行，
+    仅拦「跑鞋 500」这类裸数字；宁可漏拦（硬过滤仍兜底）不可误伤好查询串。"""
+    for m in re.finditer(r"\d+(?:\.\d+)?", q):
+        s, e = m.span()
+        before = q[s - 1] if s else ""
+        if before and (before.isalnum() or before in ".-"):
+            continue
+        if re.match(r"\s*(?:码|[A-Za-z])", q[e:]):
+            continue
+        return True
+    return False
+
+
+def validate_search_query(q) -> Optional[str]:
+    """搜索框查询串准入校验（规则组装与 LLM search_keywords 共用同一道门）：
+    否定词/预算碎片/「第X款」指代/裸数字/超 24 字符一律拒收，通过则返回空白归一串。"""
+    q = re.sub(r"\s+", " ", str(q or "")).strip()
+    if not q or len(q) > 24:
+        return None
+    if (_QUERY_NEG_RE.search(q) or _QUERY_BUDGET_RE.search(q)
+            or _QUERY_REF_RE.search(q) or _query_has_bare_number(q)):
+        return None
+    return q
+
+
+def compose_search_query(req: "ShoppingRequest", base: Optional[str] = None) -> str:
+    """把需求组装成电商搜索框查询串：基底品类词 + 尺码 + require 中的颜色词（全量拼入，
+    否定约束绝不进框——由硬过滤层执行）。非颜色属性规则路径不拼（透气/轻便类软属性
+    由 LLM search_keywords 主路径携带）。产物过校验，非法则降级为过校验的纯基底。"""
+    b = (base or req.keyword or req.category or "商品").strip() or "商品"
+    parts = [b]
+    if req.size:
+        parts.append(f"{req.size}码")
+    for tag in (req.require_tags or []):
+        t = str(tag).rstrip("的").strip()
+        if t and t in _COLOR_WORDS and t not in b and t not in parts:
+            parts.append(t)
+    # 超限/非法时从尾部逐个丢属性词（颜色先于尺码被丢）保基底，绝不一次性清空
+    cand = parts[:]
+    while cand:
+        joined = validate_search_query(" ".join(cand))
+        if joined:
+            return joined
+        cand.pop()
+    return validate_search_query(b) or b
 
 PLATFORM_WORDS = {
     "淘宝/天猫": ["淘宝", "天猫", "taobao", "tmall", "tmail"],
@@ -390,6 +457,7 @@ class RequestParser:
         if buy_first:
             req.target_rank = self._parse_rank(t)
             req.rank_buy_intent = True
+            req.intent = "buy_rank"
             return req
 
         # 1) 预算解析："200以内 / 300块以下 / 100到200 / 预算500 / ≤300 / 200-300元 / 预算升到300"
@@ -444,7 +512,28 @@ class RequestParser:
 
         # 10) 待追问信息点（needs_clarify）不再在此计算——须等 LLM 增强与档案默认预算
         #     合并完成后才有准确结论，统一移到 parse() 末尾用 missing_dims() 计算
+
+        # 11) 意图规则速判（零成本确定信号；会话层可结合上一轮推荐与 LLM 终判修正）
+        req.intent = self._rule_intent(t, req)
         return req
+
+    @staticmethod
+    def _rule_intent(t: str, req: "ShoppingRequest") -> Optional[str]:
+        """文本信号意图速判：buy_rank > new_search（硬标志，压过疑问信号）> qa > adjust > None(灰区)"""
+        if req.rank_buy_intent:
+            return "buy_rank"
+        kw = (req.keyword or "").strip()
+        junk_kw = (not kw) or kw in ("其他", "东西", "商品", "物品")
+        has_landing = bool(req.category) or not junk_kw
+        if (_HARD_BUY_RE.match(t) or _SOFT_DEMAND_RE.search(t)) and has_landing:
+            return "new_search"
+        if QUESTION_RE.search(t):
+            return "qa"
+        has_cond = bool(req.require_tags or req.exclude_tags
+                        or req.price_max is not None or req.price_min is not None)
+        if req.is_adjustment or (req.target_rank is not None and has_cond):
+            return "adjust"
+        return None
 
     # --------- 子方法 ---------
     _CN_NUM = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
@@ -505,9 +594,9 @@ class RequestParser:
         if m:
             lo, hi = float(m.group(1)), float(m.group(2))
             return lo, hi
-        # 格式2: 预算升到/调到/改为 XXX 或 预算XXX 或 XXX以内/以下/封顶/不超过/最多/≤XXX
+        # 格式2: 预算升到/调到/降到/改为 XXX 或 预算XXX 或 XXX以内/以下/封顶/不超过/最多/≤XXX
         m = re.search(
-            r"(预算|内|以内|以下|封顶|不超|不超过|最多|≤|小于等于|升到|调到|改为|提高到|增加到|改成)\s*"
+            r"(预算|内|以内|以下|封顶|不超|不超过|最多|≤|小于等于|升到|调到|降到|降至|下调到|改为|提高到|增加到|改成)\s*"
             r"(\d+(?:\.\d+)?)",
             t,
         )
@@ -676,8 +765,9 @@ class RequestParser:
             for w in plat_words:
                 # 整词替换，避免误伤夹在中文里的词
                 s = re.sub(re.escape(w), "", s)
-        # 颜色词不进搜索关键词：颜色已由要求/排除标签承接、由硬过滤层执行，
-        # 且「粉色+白色」这类多颜色无法拼进单一搜索词
+        # 颜色词不进 req.keyword 字段（维持纯品类核心词语义）；搜索时由
+        # compose_search_query 把 require 中的颜色词拼进下框查询串（提召回），
+        # 否定颜色仍只进 exclude_tags 由硬过滤层执行
         for cw in _COLOR_WORDS:
             if cw in s:
                 s = s.replace(cw, " ")
@@ -712,7 +802,7 @@ class RequestParser:
         tail_lower = s.lower()
         for tag in req.require_tags:
             if not tag or len(tag) <= 1: continue
-            if tag in _COLOR_WORDS: continue  # 颜色由硬过滤层执行，不进搜索词
+            if tag in _COLOR_WORDS: continue  # 颜色不进 req.keyword；搜索时由 compose_search_query 拼入下框
             if tag.lower() in tail_lower or (req.category and tag.lower() in req.category.lower()): continue
             # 只追加非纯数字/预算表达式的属性词
             if re.fullmatch(r"[-～~到至\d.元块]+", tag): continue
@@ -819,6 +909,12 @@ class RequestParser:
                 if 15 <= float(sv.strip()) <= 60:
                     req.size = sv.strip()
 
+        # 搜索框查询串（LLM 主路径产物）：过校验才采纳；非法/缺省保持 None，
+        # 搜索时由 compose_search_query 按全量条件现场拼
+        sk = j.get("search_keywords")
+        if isinstance(sk, str) and sk.strip():
+            req.search_keywords = validate_search_query(sk)
+
         # --- 去重与净化：避免 query/预算/品类信息重复塞进 require_tags ---
         bag_str = f"{req.keyword}|{req.category or ''}|{req.purpose or ''}"
         def _is_redundant(tag: str) -> bool:
@@ -847,6 +943,13 @@ class RequestParser:
                 v = j.get(src)
                 if isinstance(v, (int, float)) and v >= 1:
                     setattr(req, dst, int(max(1, min(10, v))))
+
+        # 意图终判：LLM 仅在规则速判留白（灰区）时裁决 qa，绝不覆盖规则确定结论；
+        # 其余取值（demand/order 等）交回会话层既有级联处理
+        if req.intent is None:
+            v = str(j.get("intent") or "").strip().lower()
+            if v == "qa":
+                req.intent = "qa"
 
         # 增量 intent / target_rank / is_adjustment（LLM明确判断时覆盖规则）
         if j.get("is_adjustment") is True:

@@ -185,11 +185,11 @@ input, textarea, select { font-family: inherit; font-size: 14px; }
   -webkit-backdrop-filter: blur(14px);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
-  padding: 12px 14px 16px;
+  padding: 0 14px 16px;
 }
 .brand {
   display: flex; align-items: center; gap: 10px;
-  height: 44px; padding: 0;
+  height: 50px; padding: 0;   /* 与顶栏等高：logo/标题与顶栏文字垂直居中对齐，分隔线连成一条 */
   border-bottom: 1px solid var(--border);
 }
 .brand .logo {
@@ -1112,7 +1112,7 @@ html[data-font="kai"]  body { font-family: "KaiTi","Kaiti SC","STKaiti",serif; }
 
 /* 响应式：窄屏 */
 @media (max-width: 900px) {
-  .sidebar { width: 70px; padding: 16px 8px; }
+  .sidebar { width: 70px; padding: 0 8px 16px; }
   .brand .title, .brand .sub, .nav-item .label, .sidebar-footer { display: none; }
   .brand { justify-content: center; padding-bottom: 14px; }
   .nav-item { justify-content: center; }
@@ -1934,6 +1934,8 @@ async function switchTab(id) {
 function _switchTab(id) {
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === id));
   $$(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.tab === id));
+  // 切回聊天页补跳：面板隐藏期间的滚动都被挂起（_pendingChatScroll），在途时切回也强制回底
+  if (id === "tab-chat" && (_pendingChatScroll || chatBusy)) scrollChat(true);
   const title = {
     "tab-chat":    "对话购物 · 自然语言驱动全流程",
     "tab-list":    "购物清单 · 想买先记下，随时开聊",
@@ -2065,11 +2067,37 @@ function stripEmojiChars(s) {
   return String(s || "").replace(/[\p{Extended_Pictographic}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}\u{2139}]+[ \t]*/gu, "");
 }
 
-/* 聊天区滚底：instant=true 用于历史恢复等需要跳过的场景，平时平滑滚动 */
+/* 聊天区滚底：instant=true 用于历史恢复等需要跳过的场景，平时平滑滚动。
+   平滑滚动动画在页面切后台（切窗口/被遮挡）瞬间会被浏览器整段丢弃，新消息留在屏外——
+   故页面隐藏时用 behavior:"instant" 直接跳底（容器 CSS scroll-behavior:smooth 会让
+   scrollTop 赋值也变平滑动画，必须显式 instant 覆盖）；可见时平滑滚动后短暂复核一次，
+   未到位（动画被丢弃）则立即补跳。
+   应用内切页（侧边栏换页签）会把面板 display:none：滚动一律落空、动画被终止、
+   复核计时器拿到 0 高度失效——此时挂起补跳标记，等切回聊天页时一次性 instant 补跳。 */
+let _pendingChatScroll = false;
 function scrollChat(instant) {
   const wrap = $("#chat-messages");
-  wrap.scrollTo({ top: wrap.scrollHeight, behavior: instant ? "auto" : "smooth" });
+  if (!wrap.clientHeight) {   // 面板 display:none：此刻滚不动，挂起
+    _pendingChatScroll = true;
+    return;
+  }
+  _pendingChatScroll = false;
+  if (document.hidden || instant) {
+    wrap.scrollTo({ top: wrap.scrollHeight, behavior: "instant" });
+    return;
+  }
+  wrap.scrollTo({ top: wrap.scrollHeight, behavior: "smooth" });
+  setTimeout(() => {
+    if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight > 2) {
+      wrap.scrollTo({ top: wrap.scrollHeight, behavior: "instant" });
+    }
+  }, 550);
 }
+/* 切回页面兜底：请求在途时，切回来的第一眼必须看到自己的消息与等待动画——
+   无论后台期间平滑动画/兜底计时器发生过什么（隐藏态下滚动落位不受保证） */
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && chatBusy) scrollChat(true);
+});
 
 /* 消息头像：AI 用生成形象（随皮肤换色系）；用户优先自定义头像，否则按性别用系统默认（男生/女生版），未填写回退图标 */
 function ucAvatarSrc() {

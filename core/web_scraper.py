@@ -13,6 +13,7 @@
   - 抓取失败必须如实告知，严禁编造商品信息。演示数据须用「演示数据」文字标记。
 """
 
+import hashlib
 import os
 import re
 import time
@@ -177,6 +178,81 @@ _FALLBACK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "Chrome/124.0.0.0 Safari/537.36")
 
 
+def _snapshot_pids() -> Optional[set]:
+    """当前全部进程 PID 快照（仅 Windows，ctypes 标准库实现）；非 Windows/失败返回 None"""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PE32W(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                        ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t),
+                        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD),
+                        ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", ctypes.c_wchar * 260)]
+
+        k32 = ctypes.windll.kernel32
+        snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+        if snap == -1:
+            return None
+        pids = set()
+        entry = _PE32W()
+        entry.dwSize = ctypes.sizeof(_PE32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            pids.add(entry.th32ProcessID)
+            ok = k32.Process32NextW(snap, ctypes.byref(entry))
+        k32.CloseHandle(snap)
+        return pids
+    except Exception:
+        return None
+
+
+def _minimize_new_windows(pids_before: Optional[set], timeout: float = 3.0) -> None:
+    """把启动后新出现的浏览器顶层窗口最小化（--start-minimized 被系统 Chrome 忽略的实测兜底）。
+    只动「启动前快照里没有的 PID」的窗口，绝不误伤用户自己开着的浏览器；
+    最小化失败静默返回（浏览器照常弹出可用，符合 AI 失效兜底红线）。"""
+    if os.name != "nt" or pids_before is None:
+        return
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        ENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        cls_buf = ctypes.create_unicode_buffer(256)
+
+        def minimize_once() -> bool:
+            hit = [False]
+
+            def cb(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value in pids_before:
+                    return True
+                user32.GetClassNameW(hwnd, cls_buf, 256)
+                if cls_buf.value == "Chrome_WidgetWin_1":
+                    user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE：收进任务栏不抢焦点
+                    hit[0] = True
+                return True
+
+            user32.EnumWindows(ENUMPROC(cb), 0)
+            return hit[0]
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if minimize_once():
+                return
+            time.sleep(0.3)
+    except Exception:
+        pass
+
+
 def _launch_browser(headless: bool = False, minimized: Optional[bool] = None):
     """minimized=None 时按用户中心偏好决定（background=最小化启动、不抢焦点，窗口收进任务栏）；
     登录/扫码等需要人工交互的调用方必须显式传 minimized=False 保证窗口可见。"""
@@ -210,6 +286,7 @@ def _launch_browser(headless: bool = False, minimized: Optional[bool] = None):
     # （第 ③ 步兜底 profile 被上一次会话短暂占用的场景）
     context = None
     last_err: Optional[Exception] = None
+    pids_before = _snapshot_pids() if (minimized and not headless) else None
     for i, use_channel in enumerate((True, False, False)):
         if use_channel and not channel:
             continue
@@ -236,6 +313,8 @@ def _launch_browser(headless: bool = False, minimized: Optional[bool] = None):
     # 仅在回退原版 Playwright 时使用 _STEALTH_JS。
     if not using_patchright:
         context.add_init_script(_STEALTH_JS)
+    if minimized and not headless:
+        _minimize_new_windows(pids_before)
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
 
@@ -534,7 +613,10 @@ def _build_product_from_detail(data: Dict[str, Any], platform: str,
         review_count=data.get("review_count", 0),
         positive_rate=data.get("positive_rate", 0.0) or 0.0,
     )
-    pid = "real-" + str(abs(hash(data.get("name", "") + str(data.get("price", 0)))) % 100000)
+    # pid 用「平台+归一化品名」的 md5：内建 hash() 受 PYTHONHASHSEED 随机化，
+    # 同一商品跨进程（服务重启）pid 必变，会让会话持久化/去重全部失配
+    _norm_name = re.sub(r"[^\w一-鿿]+", "", str(data.get("name") or ""))
+    pid = "real-" + hashlib.md5(f"{platform}|{_norm_name}".encode("utf-8")).hexdigest()[:10]
     return Product(
         pid=pid,
         name=data.get("name", "未知商品"),

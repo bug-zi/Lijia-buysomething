@@ -480,8 +480,10 @@ def parse_shopping_request_with_llm(user_text: str, profile: Dict[str, Any],
   target_rank: number|null  当用户说"买第X款"时填X，否则null
   top_n: number|null       用户指定的最终输出条数（如"排名前5"填5；没提则null）
   per_platform_n: number|null 用户指定的每平台候选条数（如"各筛前4名"填4；没提则null）
-  intent: string           分类：demand=新需求/search=搜索/profile=档案相关/order=下单或确认/query_order=查订单/logistics=查物流/aftersale=售后/other=其他
+  search_keywords: string|null 最适合放进电商搜索框的完整查询串：品类词+可搜的正向属性（颜色/透气/轻便等，如「跑鞋 透气 粉色」）；严禁包含否定词（不要X）、预算数字、条数、「第X款」指代；没有把握就填null
+  intent: string           分类：demand=新需求/qa=基于当前会话已推荐商品的提问·对比·评价咨询（不搜新商品）/search=搜索/profile=档案相关/order=下单或确认/query_order=查订单/logistics=查物流/aftersale=售后/other=其他
 结合[最近对话]理解指代与增量表达（如"再要2个""换成京东的""第二种呢"）；条数要求填入 top_n/per_platform_n。
+判据补充：用户提到「第X款/这几款/上一轮/刚才那些」且在提问、对比或求评价（而非购买或修改条件）时，intent 必须填 qa。
 所有 string 必须为中文简洁表述；不要输出任何文字解释。严禁输出任何emoji表情。输出必须是一个合法的JSON对象。"""
     hist_block = ""
     if history:
@@ -561,17 +563,29 @@ def answer_free_question_with_llm(question: str, materials: Dict[str, Any]) -> O
         "1) 材料里没有的事实（历史价格/库存/真伪/未出现过的商品）如实回答「材料中没有，无法判断」，"
         "绝不编造商品、价格、评价；\n"
         "2) 「买哪个好」类问题：基于评分材料给建议并说明理由，结尾提醒一句下单前核对尺码/价格；\n"
-        "3) 回答用简洁中文 Markdown，不超过300字。严禁使用任何emoji表情。\n"
-        "输出约定：若用户是在要求搜索/推荐新商品，或问题与本会话材料完全无关，只输出一行：NEED_SEARCH"
+        "3) 用户点名对比「第X款 vs 第Y款」时：从材料中取两款逐项对比（到手价/总分/好评差评要点），"
+        "再结合用户问的用途给结论+理由；材料缺失的维度如实说明；\n"
+        "4) 回答用简洁中文 Markdown，不超过300字。严禁使用任何emoji表情。\n"
+        "输出约定：仅当用户明确要求搜索/推荐新商品时，才只输出一行：NEED_SEARCH；"
+        "基于已有商品能答的问题（哪怕问法含糊）一律作答，不许输出 NEED_SEARCH"
     )
     user_prompt = (
         f"[材料]\n{json.dumps(materials, ensure_ascii=False, indent=2)}\n\n"
         f"[用户问题]\n{question.strip()}\n\n请回答："
     )
+    # 轻任务快档：智谱直连时指到 flash（实测主档 glm-5.3 单次响应 40s+，10~25s 超时必挂；
+    # 其他服务商不指名，避免请求不存在的模型）。超时按开发者指示放宽至 100s——
+    # flash 快档实测 ~10s 返回，100s 只是兜慢响应的 ceilings，正常路径不受影响
+    model_override = None
+    try:
+        if "bigmodel.cn" in (get_config().get("base_url") or "").lower():
+            model_override = "glm-5.3-flash"
+    except Exception:
+        model_override = None
     return chat_completion([
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": user_prompt},
-    ], temperature=0.4, max_tokens=500, timeout=10)
+    ], temperature=0.4, max_tokens=500, timeout=100, model=model_override)
 
 
 def summarize_reviews_with_llm(product_name: str, good_raw: List[str],

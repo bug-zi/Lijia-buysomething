@@ -17,10 +17,12 @@ from typing import Optional, Tuple, List, Dict, Any
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "core"))  # 业务模块目录
 
 from profile_module import ProfileManager
-from product_searcher import ProductSearcher, Product
-from recommender import Recommender, COLOR_KEYWORDS
+from product_searcher import ProductSearcher, Product, Review
+from recommender import Recommender, COLOR_KEYWORDS, ScoreBreakdown
 from order_manager import OrderManager, Order, LogisticsEvent
-from request_parser import RequestParser, ShoppingRequest, _COLOR_WORDS
+from request_parser import (RequestParser, ShoppingRequest, _COLOR_WORDS, QUESTION_RE,
+                            _HARD_BUY_RE, _SOFT_DEMAND_RE,
+                            compose_search_query, validate_search_query)
 from virtual_cart import VirtualCart
 from shopping_list import shopping_list
 from account_manager import data_dir
@@ -181,27 +183,38 @@ class ChatSession:
                                 history=self._history)
 
         # 4.1 指向第几款购买（强意图优先级最高）：buy_first 短路需求已在 parse() 内
-        #     挡住 LLM/档案回填污染；LLM 单独识别出 target_rank 且无其他字段时同样走下单
+        #     挡住 LLM/档案回填污染；LLM 单独识别出 target_rank 且无其他字段时同样走下单。
+        #     例外：意图速判为 qa（疑问信号+款位指代，如「对比一下第一款和第三款」）
+        #     不得误触下单——问答一等分支优先（design 4.1/4.2）
         strong_rank = req.rank_buy_intent or not (
             req.keyword or req.require_tags or req.exclude_tags or
             req.price_max is not None or req.price_min is not None or
             req.platforms or req.category)
-        if req.target_rank is not None and strong_rank:
+        if req.target_rank is not None and strong_rank and req.intent != "qa":
             return self._flow_confirm_buy(text, req.target_rank)
 
-        # 4.2 如果是调整意见，叠加上次请求。除 is_adjustment 标记外，
+        # 4.2 上下文问答（一等分支）：意图已判定为提问/对比/评价咨询 → 基于会话材料作答，
+        #     绝不触发搜索；问答失败走规则兜底（对比卡/如实告知，见 _flow_context_qa）
+        if req.intent == "qa":
+            return self._flow_context_qa(text, req)
+
+        # 4.3 如果是调整意见，叠加上次请求。除 is_adjustment 标记外，
         #     「第X款 + 条件变更」也算调整（如「第二款不要这种带有黑色元素的，预算升到800」
-        #     没有"换"字，规则引擎的 adjust_markers 探不到）；纯「买第X款」已在上方强意图短路
+        #     没有"换"字，规则引擎的 adjust_markers 探不到）；纯「买第X款」已在上方强意图短路。
+        #     带槽位指向且命中推荐表 → 增量替换：只换被点名款、其余保留（design 4.4）；
+        #     否则维持合并+全量重搜（原行为）
         adjust_like = req.is_adjustment or (
             req.target_rank is not None and (
                 req.require_tags or req.exclude_tags or
                 req.price_max is not None or req.price_min is not None))
         if adjust_like and self._last_request is not None:
+            if req.intent == "adjust" and req.target_rank is not None:
+                return self._flow_adjust_replace(text, req)
             merged = self._merge_request(self._last_request, req)
             return self._flow_recommend(text, merged)
 
-        # 4.2.5 自由问答兜底：疑似上下文追问（疑问信号）或解析不出明确需求（泛词），
-        #       且会话有材料、LLM 可用 → 尝试基于材料答疑；None → 落回下方原流程
+        # 4.3.5 灰区问答兜底（原 4.2.5）：疑问信号但规则与 LLM 均未定性，或解析不出明确
+        #       需求（泛词），且会话有材料、LLM 可用 → 尝试基于材料答疑；None → 落回下方原流程
         junk_kw = (not str(req.keyword or "").strip()) or \
                   req.keyword.strip() in ("其他", "东西", "商品", "物品")
         req_vague = junk_kw and not req.category and not req.require_tags and not req.purpose
@@ -237,15 +250,10 @@ class ChatSession:
     _CLARIFY_BUDGETS = ["100以内", "100-300", "300-800", "800-1500", "1500以上"]
     _CLARIFY_SKIP = ("随便", "随便推荐", "都行", "不限", "跳过", "先搜", "直接搜", "无所谓")
 
-    # 自由问答：疑问信号（短句+疑问标记）与档案材料白名单（姓名/电话/地址等隐私绝不入 prompt）
-    _QA_QUESTION_RE = re.compile(
-        r"[??]|为什么|哪个|哪些|怎么|怎么样|好不好|值不值|划算|值得吗|多少|有没有|能不能|可不可以|区别|差别|对比|理由|合适吗|好吗|行吗")
-
-    # 建档向导进行中，明确转向新购物需求的入口（「买/求购/来点…」开头；
-    # 「跳过/完成」等向导应答词不在此列，避免误退出）
-    _BUY_INTENT_RE = re.compile(
-        r"^\s*(?:我|帮我|帮忙|请|麻烦)?\s*(?:想|要|打算|准备|计划|需要)?\s*"
-        r"(?:购买|买|求购|来点|来一份|想吃|想喝|搜一下|搜索|查一下|找个|找款)")
+    # 自由问答疑问信号与建档向导「转向新需求」入口正则——单一来源在 request_parser
+    # （意图速判共用同一对象），此处仅引用
+    _QA_QUESTION_RE = QUESTION_RE
+    _BUY_INTENT_RE = _HARD_BUY_RE
 
     _PROFILE_QA_KEYS = ["height", "weight", "budget_max", "color_like", "color_dislike",
                         "style_like", "style_dislike", "material_like", "material_dislike",
@@ -283,19 +291,20 @@ class ChatSession:
                 return qa
         return None
 
-    def _try_free_qa(self, question: str) -> Optional[str]:
-        """自由问答兜底：基于会话材料（上次推荐+历史窗口+档案摘要）LLM 答疑。
-        返回回答文本；材料缺失/LLM不可用/调用失败/NEED_SEARCH → None（上层落回原流程）。"""
+    def _try_free_qa_routed(self, question: str) -> Tuple[str, Optional[str]]:
+        """自由问答尝试（意图路由版）。返回 (status, answer)：
+        ("ok", 回答) / ("need_search", None)（LLM 判需新搜索）/ ("disabled", None)（AI 未启用）
+        / ("error", None)（AI 调用失败或超时）/ ("none", None)（材料缺失）"""
         try:
             last_brief = self.recommender.last_recommendation_brief()
         except Exception:
             last_brief = []
         if not last_brief and not self._history:
-            return None
+            return "none", None
         try:
             import ai_client
             if not ai_client.get_config().get("enabled"):
-                return None
+                return "disabled", None
             materials = {
                 "last_recommendation": last_brief,
                 "recent_chat": [{"role": m["role"], "text": m["text"][:100]} for m in self._history],
@@ -304,12 +313,84 @@ class ChatSession:
             }
             ans = ai_client.answer_free_question_with_llm(question, materials)
         except Exception:
-            return None
+            return "error", None
         if not ans or not ans.strip():
-            return None
+            return "error", None
         if ans.strip().upper().startswith("NEED_SEARCH"):
-            return None
-        return ans.strip()
+            return "need_search", None
+        return "ok", ans.strip()
+
+    def _try_free_qa(self, question: str) -> Optional[str]:
+        """自由问答兜底（旧入口：向导旁路/灰区泛词用）。ok→回答文本；其余→None 落回原流程。"""
+        status, ans = self._try_free_qa_routed(question)
+        return ans if status == "ok" else None
+
+    def _flow_context_qa(self, text: str, req: ShoppingRequest) -> str:
+        """上下文问答一等分支：基于会话材料答疑，绝不触发搜索。
+        LLM 判 NEED_SEARCH 时仅当消息带新需求硬标志（需求措辞+品类/关键词落地）才放行去搜索，
+        否则视为 LLM 误判，走规则兜底（design 4.3）。"""
+        try:
+            last_brief = self.recommender.last_recommendation_brief()
+        except Exception:
+            last_brief = []
+        if not last_brief and not self._history:
+            return self._qa_fallback_text(text)
+        status, ans = self._try_free_qa_routed(text)
+        if status == "ok":
+            return ans
+        if status == "need_search":
+            kw = (req.keyword or "").strip()
+            hard = bool(req.category or (kw and kw not in ("其他", "东西", "商品", "物品"))) \
+                and bool(_HARD_BUY_RE.match(text) or _SOFT_DEMAND_RE.search(text))
+            if hard:
+                if self._last_request is not None and (req.is_adjustment or req.target_rank is not None):
+                    return self._flow_recommend(text, self._merge_request(self._last_request, req))
+                return self._flow_recommend(text, req)
+        return self._qa_fallback_text(text, reason=status)
+
+    _QA_FAIL_REASON = {
+        "disabled": "未启用 AI Key",
+        "error": "AI 调用失败或超时",
+        "need_search": "AI 判断这句是在要新商品，为避免乱搜未作答",
+    }
+
+    def _qa_fallback_text(self, text: str, reason: str = "error") -> str:
+        """问答失败的规则兜底（绝不搜索）：可定位两款 → 数据对比卡（只用已抓字段，
+        缺失如实标注）；否则如实告知无可答材料。reason 用于如实区分失败原因。"""
+        why = self._QA_FAIL_REASON.get(reason, "AI 调用失败或超时")
+        ranks = self._extract_compare_ranks(text)
+        table = self.recommender.last_products()
+        if ranks and len(table) >= max(ranks):
+            lines = [f"**第{ranks[0]}款 vs 第{ranks[1]}款（已抓取数据的客观对比）**", ""]
+            for r in ranks:
+                p = self.recommender.get_last_product(r)
+                s = self.recommender._last_scores.get(p.pid)
+                good = (list(p.review.good_points) or ["未抓取到"])[0]
+                score_txt = (f"总分 {s.total:.0f}（匹配{s.profile_match:.0f}·性价比{s.value:.0f}"
+                             f"·口碑{s.reputation:.0f}）") if s else "总分 未抓取到"
+                lines.append(f"- **第{r}款**：{p.name}｜{p.platform}｜到手 ¥{p.final_price:.1f}｜{score_txt}")
+                lines.append(f"  - 好评要点：{good}")
+            lines.append("")
+            lines.append(f"AI 答疑暂不可用（{why}），以上为已抓取数据的客观对比；主观建议请启用 AI 后再询问。")
+            return "\n".join(lines)
+        if table:
+            return (f"AI 答疑暂不可用（{why}），主观对比暂时答不了。\n"
+                    "可以点名两款来比，如「第1款和第3款哪个适合跑步」，我给你出已抓数据的客观对比卡。")
+        return ("当前会话没有可供回答的推荐记录，这个问题我答不了（AI 答疑也不可用）。\n"
+                "可以先告诉我购物需求（如「买一双跑鞋 预算300」），出推荐后再来问我对比。")
+
+    @staticmethod
+    def _extract_compare_ranks(text: str) -> Optional[Tuple[int, int]]:
+        """取句中前两个「第X款/个/号」位次（问答失败时的数据对比卡定位用）"""
+        cn = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+        vals: List[int] = []
+        for m in re.findall(r"第\s*([一二三四五六七八九十\d]+)\s*[款个号]", text or ""):
+            v = int(m) if m.isdigit() else cn.get(m)
+            if v and 1 <= v <= 10 and v not in vals:
+                vals.append(v)
+        if len(vals) >= 2:
+            return vals[0], vals[1]
+        return None
 
     def _start_clarify(self, text: str) -> str:
         self._pending_clarify = {"text": text, "stage": 1}
@@ -402,9 +483,10 @@ class ChatSession:
         cc = cancel_check or self._cancel_check
         if cc is not None and cc():
             return "（消息已撤回，本次搜索已中止）"
-        keyword = req.keyword or req.category or "商品"
-        if req.size:
-            keyword = f"{keyword} {req.size}码"
+        # 下框查询串：LLM search_keywords（过校验）优先，否则规则组装器按
+        # 品类+尺码+require颜色现场拼（第14轮：颜色等正向属性进框提召回）
+        keyword = validate_search_query(req.search_keywords or "") \
+            or compose_search_query(req) or "商品"
         # 记录为上一次请求（后续可基于此调整）
         self._last_request = req
         self._pending_search = False
@@ -484,6 +566,141 @@ class ChatSession:
             "   · 调整预算/条件，如 `预算升到300`",
         ]
         return "\n".join(lines)
+
+    def _flow_adjust_replace(self, raw_text: str, req: ShoppingRequest, cancel_check=None) -> str:
+        """增量替换（design 4.4）：只更换被点名的款位、其余保留上一轮，整表重出（编号不变）。
+        属性类条件（要求/排除）仅作用于被指槽位；价格/平台/尺码类全局——违规的保留槽位连带替换。
+        前提不满足（无上一轮/款位越界）→ 落回既有全量重搜，绝不崩溃。"""
+        cc = cancel_check or self._cancel_check
+        rank = req.target_rank
+        base = self._last_request
+        old = self.recommender.get_last_product(rank) if rank else None
+        if old is None or base is None:
+            merged = self._merge_request(base, req) if base else req
+            resp = self._flow_recommend(raw_text, merged, cancel_check=cc)
+            # 诚实兜底：表丢失（多见于服务重启前的旧会话）不再静默冒充「整表未变」
+            if base is not None and not self.recommender.last_products():
+                resp = ("（注：当前会话的推荐表为空——通常是服务重启前的旧会话；"
+                        "本次已按新条件整体重搜，非增量替换）\n\n") + resp
+            return resp
+
+        merged = self._merge_request(base, req)
+        self._last_request = merged
+
+        def _norm_name(s) -> str:
+            return re.sub(r"[^\w一-鿿]+", "", str(s or "")).lower()
+
+        def _slot_pick(slot_old: Product, slot_req: ShoppingRequest):
+            """单槽位一次限量定向搜索（每平台 ≤10 条）→ (新商品, 评分, 颜色未标注) 或 (None, 失败原因, False)。
+            去重双保险：pid 之外按归一化品名相似再剔一道——源站卡片名/价/URL 抖动会让 pid 去重失效
+            （真机复现：替换款与保留款同为「安踏毒刺6代」）。用户点名颜色时，卡片明确符合者优先，
+            未标注颜色的仅作候补并如实附注。"""
+            kw = compose_search_query(
+                slot_req, base=(slot_old.category or slot_req.keyword or slot_req.category)
+            ) or "商品"
+            if cc is not None and cc():
+                return None, "cancel", False
+            try:
+                products, _block, need_human = self.searcher.search_real(
+                    kw, platforms=slot_req.platforms or None, max_per_platform=6, cancel_check=cc)
+            except Exception:
+                return None, "empty", False
+            if need_human:
+                return None, "need_human", False
+            products = [p for p in products if p.final_price]
+            products, _drops, _unv = self._apply_hard_filters(products, slot_req)
+            norms = [(_norm_name(q.name), q.pid) for q in self.recommender.last_products()]
+
+            def _is_dup(p: Product) -> bool:
+                n = _norm_name(p.name)
+                if not n:
+                    return False
+                if any(p.pid == qpid for _, qpid in norms):
+                    return True
+                return any((n in qn or qn in n) and min(len(n), len(qn)) >= 10 for qn, _ in norms)
+
+            products = [p for p in products if not _is_dup(p)]
+            if not products:
+                return None, "empty", False
+            req_colors = set()
+            for t_ in (slot_req.require_tags or []):
+                t2 = str(t_).rstrip("的")
+                if t2 in COLOR_KEYWORDS:
+                    req_colors.add(t2)
+                else:
+                    for canon, alts in COLOR_KEYWORDS.items():
+                        if t2 in alts:
+                            req_colors.add(canon)
+
+            def _pref_key(tup):
+                p_, s_ = tup
+                if not req_colors:
+                    return (1, s_.total)
+                txt = " ".join([p_.name] + list(p_.tags or [])).lower()
+                hit = any(any(w.lower() in txt for w in ({c} | set(COLOR_KEYWORDS[c])))
+                          for c in req_colors)
+                return (1 if hit else 0, s_.total)
+
+            scored = sorted(
+                ((p, self.recommender.score_product(p, slot_req.price_max)) for p in products),
+                key=_pref_key, reverse=True)
+            best_p, best_s = scored[0]
+            color_unverified = False
+            if req_colors:
+                txt = " ".join([best_p.name] + list(best_p.tags or [])).lower()
+                color_unverified = not any(any(w.lower() in txt for w in ({c} | set(COLOR_KEYWORDS[c])))
+                                           for c in req_colors)
+            return best_p, best_s, color_unverified
+
+        picked = _slot_pick(old, merged)
+        if cc is not None and cc():
+            return "（消息已撤回，本次搜索已中止）"
+        if picked[0] is None:
+            if picked[1] == "need_human":
+                self._pending_search = True
+                return (f"已准备为第{rank}款寻找替代（搜索词按合并后条件生成：品类/尺码/颜色要求），"
+                        "请在弹出的浏览器里完成登录/验证。\n\n"
+                        "完成后回复「**继续抓取**」，我会继续为你搜索并推荐。")
+            return (f"没有找到符合新条件的第{rank}款替代（条件：{merged.summary() or '—'}），"
+                    "推荐表保持不变。可以放宽一点条件再试，比如少一个颜色要求或放宽预算。")
+
+        new_p, new_s, new_unv = picked
+        self.recommender.replace_last_product(rank, new_p, new_s)
+        notes = [f"第{rank}款已按新条件替换为「{new_p.name}」（本次新搜索）"]
+        if new_unv:
+            notes.append("新换入款卡片未标注颜色，是否符合点名颜色以商品详情页为准")
+
+        # 保留槽位复验：价格/平台/尺码用 merged（全局）；属性要求/排除回到 base——
+        # 「第二款不要黑色的」不约束其余槽位（design 4.4 第 4 条）
+        kept_req = ShoppingRequest(
+            raw=raw_text, keyword=merged.keyword, category=merged.category,
+            price_min=merged.price_min, price_max=merged.price_max,
+            platforms=list(merged.platforms or []), size=merged.size,
+            require_tags=list(base.require_tags or []),
+            exclude_tags=list(base.exclude_tags or []))
+        for idx, p in enumerate(self.recommender.last_products(), 1):
+            if idx == rank:
+                continue
+            survivors, _d, _u = self._apply_hard_filters([p], kept_req)
+            if survivors:
+                continue
+            rep = _slot_pick(p, kept_req)
+            if rep[0] is not None:
+                self.recommender.replace_last_product(idx, rep[0], rep[1])
+                line_txt = f"第{idx}款「{p.name}」不符合新条件，已一并替换为「{rep[0].name}」"
+                if rep[2]:
+                    line_txt += "（卡片未标注颜色，是否符合以详情页为准）"
+                notes.append(line_txt)
+            else:
+                notes.append(f"第{idx}款「{p.name}」不符合新条件，暂未找到合适替代，先保留原商品")
+
+        full = self.recommender.last_products()
+        scores = [self.recommender._last_scores.get(p.pid)
+                  or self.recommender.score_product(p, merged.price_max) for p in full]
+        title = f"**推荐表已更新：第{rank}款按新条件替换，位次不变**"
+        resp = self.recommender.format_top(full, scores, extra_require=merged.summary(), title=title)
+        resp += "\n---\n> " + "；".join(notes) + "；其余各款保留上一轮结果，未重复抓取。"
+        return resp
 
     def _apply_hard_filters(self, products: List[Product], req: ShoppingRequest
                             ) -> Tuple[List[Product], Dict[str, int], int]:
@@ -709,6 +926,10 @@ class ChatSession:
         merged = ShoppingRequest(raw=delta.raw)
         # 关键词保护：delta 关键词须通过干净词校验才允许顶掉上一轮搜索词，否则沿用 base
         merged.keyword = self._clean_delta_keyword(delta.keyword) or base.keyword
+        # 搜索框查询串防陈旧：只认本轮 delta 的有效串，否则置 None——颜色等条件已变，
+        # 旧串作废，搜索时由组装器按 merged 全量条件现场重拼
+        merged.search_keywords = (validate_search_query(delta.search_keywords)
+                                  if delta.search_keywords else None)
         merged.category = delta.category or base.category
         merged.price_min = delta.price_min if delta.price_min is not None else base.price_min
         merged.price_max = delta.price_max if delta.price_max is not None else base.price_max
@@ -1099,9 +1320,19 @@ class ChatSession:
     # ---------- 会话状态序列化（多会话持久化，配合 session_store） ----------
     def export_state(self) -> Dict[str, Any]:
         """导出会话上下文（会话态字段）；档案/订单/购物车已有各自 JSON 持久化，不在此列"""
+        try:
+            from dataclasses import asdict as _asdict
+            last_products = [_asdict(p) for p in (self.recommender._last_products or [])]
+            last_scores = {pid: _asdict(s) for pid, s in (self.recommender._last_scores or {}).items()}
+        except Exception:
+            last_products, last_scores = [], {}
         return {
             "collecting_profile": bool(self._collecting_profile),
             "last_request": self._shopping_request_to_dict(self._last_request),
+            # 推荐表随会话持久化（此前为纯内存态：服务重启恢复会话后表为空，
+            # 「买第X款/对比/增量替换」全部退化为全量重搜或如实告知）
+            "last_products": last_products,
+            "last_scores": last_scores,
             "pending_order": self._pending_order.to_dict() if self._pending_order is not None else None,
             "pending_rank": self._pending_rank,
             "cancelled": bool(self._cancelled),
@@ -1167,9 +1398,37 @@ class ChatSession:
                     top_n=d.get("top_n"),
                     per_platform_n=d.get("per_platform_n"),
                     size=d.get("size"),
+                    search_keywords=d.get("search_keywords"),
                 )
             except Exception:
                 self._last_request = None
+
+        # 推荐表恢复（含评价子结构逐款重建；个别款失败跳过，不中断恢复）
+        self.recommender._last_products = []
+        self.recommender._last_scores = {}
+        try:
+            prods = []
+            for pd in (state.get("last_products") or []):
+                if not isinstance(pd, dict):
+                    continue
+                d = dict(pd)
+                rv = d.pop("review", None)
+                p = Product(**{k: v for k, v in d.items() if k in Product.__dataclass_fields__})
+                if isinstance(rv, dict):
+                    p.review = Review(**{k: v for k, v in rv.items() if k in Review.__dataclass_fields__})
+                prods.append(p)
+            scores = {}
+            for pid, sd in (state.get("last_scores") or {}).items():
+                if isinstance(sd, dict):
+                    try:
+                        scores[str(pid)] = ScoreBreakdown(**{k: v for k, v in sd.items()
+                                                             if k in ScoreBreakdown.__dataclass_fields__})
+                    except Exception:
+                        continue
+            self.recommender._last_products = prods
+            self.recommender._last_scores = scores
+        except Exception:
+            pass
 
         # 待确认订单草稿：按字段重建（events 逐条重建），失败丢弃该草稿
         od = state.get("pending_order")

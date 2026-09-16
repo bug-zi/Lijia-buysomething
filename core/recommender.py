@@ -391,12 +391,13 @@ class Recommender:
         products: List[Product],
         scores: List[ScoreBreakdown],
         extra_require: Optional[str] = None,
+        title: Optional[str] = None,
     ) -> str:
         if not products:
             return "未找到符合条件的商品，建议调整价格区间或关键词。"
 
         lines = []
-        lines.append(f"**为你选出TOP{len(products)}最优商品**（结合你的个人档案打分）")
+        lines.append(title or f"**为你选出TOP{len(products)}最优商品**（结合你的个人档案打分）")
         if extra_require:
             lines.append(f"   · 当前筛选条件：{extra_require}")
         lines.append("")
@@ -656,6 +657,21 @@ class Recommender:
                 if p.pid == index_or_pid or p.name == index_or_pid:
                     return p
         return None
+
+    def replace_last_product(self, rank: int, product: Product,
+                             score: Optional[ScoreBreakdown] = None) -> bool:
+        """把新商品原位写入上次推荐表第 rank 位（1 起始，编号不变），并同步评分。
+        越界/空表拒绝（返回 False），调用方据此落回全量流程。"""
+        if not isinstance(rank, int) or not (1 <= rank <= len(self._last_products)):
+            return False
+        self._last_products[rank - 1] = product
+        if score is not None:
+            self._last_scores[product.pid] = score
+        return True
+
+    def last_products(self) -> List[Product]:
+        """当前推荐表快照（浅拷贝；位次即对外编号）"""
+        return list(self._last_products)
 
     def last_recommendation_brief(self) -> List[Dict[str, Any]]:
         """上次推荐的紧凑摘要（自由问答的材料源；不含评价全文，控制 token）"""
